@@ -200,3 +200,15 @@ class TestDaktelaClient:
         assert result["healthy"] is True
         assert "latency_ms" in result
         assert result["status_code"] == 200
+
+    def test_file_endpoint_uses_raw_base_url(self, client: DaktelaClient, httpx_mock: HTTPXMock) -> None:
+        """Test health check."""
+        httpx_mock.add_response(
+            url="https://test.daktela.com/file/recording/activity_123456789",
+            content=b'x\00',
+            headers={'content-type': 'audio/opus', 'filename': 'activity_123456789.opus'}
+        )
+
+        result = client.get('file/recording/activity_123456789')
+
+        assert result.is_success
