@@ -149,6 +149,9 @@ class ApiCommunicator:
         endpoint = endpoint.lstrip("/")
         url = f"{self._config.base_url}/{endpoint}"
 
+        if endpoint.startswith('file/'):
+            url = f"{self._config.raw_base_url}/{endpoint}"
+
         params: List[Tuple[str, str]] = []
 
         if self._config.auth_method == AuthMethod.QUERY:
