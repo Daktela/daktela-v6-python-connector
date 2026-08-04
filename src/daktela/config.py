@@ -59,3 +59,12 @@ class DaktelaConfig:
             Base URL with protocol and API path (e.g., "https://my.daktela.com/api/v6")
         """
         return f"https://{self.url}/api/v6"
+
+    @property
+    def raw_base_url(self) -> str:
+        """Get the full base URL for API requests.
+
+        Returns:
+            Base URL with protocol without API path (e.g., "https://my.daktela.com")
+        """
+        return f"https://{self.url}"
