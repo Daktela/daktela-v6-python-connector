@@ -37,11 +37,12 @@ from .exceptions import (
     DaktelaTimeoutException,
     DaktelaUnauthorizedException,
     DaktelaValidationException,
+    DaktelaFileResponseException,
 )
 from .http import RateLimitConfig, RetryConfig
 from .iterator import PaginatedIterator
 from .query import DaktelaFilter, DaktelaPagination, DaktelaQuery, DaktelaSort
-from .response import DaktelaResponse
+from .response import DaktelaResponse, DaktelaFileResponse
 
 __version__ = "1.0.0"
 
@@ -50,6 +51,7 @@ __all__ = [
     "DaktelaClient",
     "DaktelaConfig",
     "DaktelaResponse",
+    "DaktelaFileResponse",
     # Query builders
     "DaktelaQuery",
     "DaktelaFilter",
@@ -70,6 +72,7 @@ __all__ = [
     "DaktelaConnectionException",
     "DaktelaTimeoutException",
     "DaktelaValidationException",
+    "DaktelaFileResponseException",
     # Version
     "__version__",
 ]
