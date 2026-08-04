@@ -1,6 +1,7 @@
 """Tests for DaktelaResponse."""
+import pytest
 
-from daktela import DaktelaResponse
+from daktela import DaktelaResponse, DaktelaFileResponse, DaktelaFileResponseException
 
 
 class TestDaktelaResponse:
@@ -136,3 +137,107 @@ class TestDaktelaResponse:
         assert "200" in rep
         assert "1" in rep  # items
         assert "100" in rep  # total
+
+    def test_file_response(self) -> None:
+        """Test file response."""
+        r = DaktelaFileResponse(
+            status_code=200,
+            data=b'x\00x\00x\00x\00',
+            filename='audio.opus',
+            errors=['error 01', 'error 02'],
+        )
+        assert r.status_code == 200
+        assert r.data == b'x\00x\00x\00x\00'
+        assert r.filename == 'audio.opus'
+        assert r.errors == ['error 01', 'error 02']
+
+    def test_file_response_exception_not_available_total(self) -> None:
+        r = DaktelaFileResponse(
+            status_code=200,
+            data=b'x\00x\00x\00x\00',
+            filename='audio.opus',
+        )
+
+        with pytest.raises(DaktelaFileResponseException) as e:
+            a = r.total
+
+        assert e.value.message.find('"daktela.response.DaktelaFileResponse.total"') > 0
+
+    def test_file_response_exception_not_available_as_list(self) -> None:
+        r = DaktelaFileResponse(
+            status_code=200,
+            data=b'x\00x\00x\00x\00',
+            filename='audio.opus',
+        )
+
+        with pytest.raises(DaktelaFileResponseException) as e:
+            a = r.as_list()
+
+        assert e.value.message.find('"daktela.response.DaktelaFileResponse.as_list()"') > 0
+
+    def test_file_response_exception_not_available_as_dict(self) -> None:
+        r = DaktelaFileResponse(
+            status_code=200,
+            data=b'x\00x\00x\00x\00',
+            filename='audio.opus',
+        )
+
+        with pytest.raises(DaktelaFileResponseException) as e:
+            a = r.as_dict()
+
+        assert e.value.message.find('"daktela.response.DaktelaFileResponse.as_dict()"') > 0
+
+    def test_file_response_exception_not_available_get(self) -> None:
+        r = DaktelaFileResponse(
+            status_code=200,
+            data=b'x\00x\00x\00x\00',
+            filename='audio.opus',
+        )
+
+        with pytest.raises(DaktelaFileResponseException) as e:
+            a = r.get('key')
+
+        assert e.value.message.find('"daktela.response.DaktelaFileResponse.get()"') > 0
+
+    def test_file_response_exception_not_available_iter(self) -> None:
+        r = DaktelaFileResponse(
+            status_code=200,
+            data=b'x\00x\00x\00x\00',
+            filename='audio.opus',
+        )
+
+        with pytest.raises(DaktelaFileResponseException) as e:
+            for i in r:
+                pass
+
+        assert e.value.message.find('"daktela.response.DaktelaFileResponse.__iter__()"') > -1
+
+    def test_file_response_len_no_data(self) -> None:
+        r = DaktelaFileResponse(
+            status_code=200,
+            data=None,
+            filename='audio.opus',
+        )
+
+        assert r.__len__() == 0
+
+    def test_file_response_len_file_size(self) -> None:
+        r = DaktelaFileResponse(
+            status_code=200,
+            data=b'x\00x\00x\00x\00',
+            filename='audio.opus',
+        )
+
+        assert r.__len__() == 8
+
+    def test_file_response_repr(self)-> None:
+        r = DaktelaFileResponse(
+            status_code=200,
+            data=b'x\00x\00x\00x\00',
+            filename='audio.opus',
+        )
+
+        rep = repr(r)
+        assert rep.find('status_code=200') > -1
+        assert rep.find('filename=audio.opus') > -1
+        assert rep.find('len=8') > -1
