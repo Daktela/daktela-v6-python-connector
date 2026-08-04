@@ -95,3 +95,12 @@ class TestDaktelaConfig:
         )
         with pytest.raises(AttributeError):
             config.url = "other.daktela.com"  # type: ignore
+
+    def test_raw_base_url(self) -> None:
+        """Test raw base url."""
+        config = DaktelaConfig(
+            url='my.daktela.com',
+            access_token='token',
+        )
+        assert config.base_url == 'https://my.daktela.com/api/v6'
+        assert config.raw_base_url == 'https://my.daktela.com'
