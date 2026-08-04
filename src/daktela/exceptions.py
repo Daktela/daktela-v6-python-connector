@@ -100,3 +100,15 @@ class DaktelaValidationException(DaktelaException):
         errors: Optional[List[Any]] = None,
     ) -> None:
         super().__init__(message, status_code=status_code, errors=errors)
+
+
+class DaktelaFileResponseException(DaktelaException):
+    """Raised when DaktelaResponse function/property is not available in DaktelaFileResponse."""
+
+    def __init__(
+        self,
+        function_or_property: str = "",
+        errors: Optional[List[Any]] = None,
+    ) -> None:
+        message = f'Function or property is not available in DaktelaFileResponse: "{function_or_property}".'
+        super().__init__(message, status_code=None, errors=errors)
