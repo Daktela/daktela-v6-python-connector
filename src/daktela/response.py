@@ -2,6 +2,8 @@
 
 from typing import Any, Dict, Iterator, List, Optional, TypeVar
 
+from daktela.exceptions import DaktelaFileResponseException
+
 T = TypeVar("T")
 
 
@@ -120,4 +122,84 @@ class DaktelaResponse:
         return (
             f"DaktelaResponse(status_code={self._status_code}, "
             f"items={len(self)}, total={self._total})"
+        )
+
+class DaktelaFileResponse(DaktelaResponse):
+    """Wrapper for Daktela API file responses.
+
+    Provides convenient access to response data with type helpers.
+
+    Attributes:
+        status_code: HTTP status code
+        data: Response data (file content as bytes)
+        filename: The given filename of the response header
+        errors: List of error details if present
+    """
+
+    def __init__(
+        self,
+        status_code: int,
+        data: Any = None,
+        filename: str = '',
+        errors: Optional[List[Any]] = None,
+    ) -> None:
+        self._status_code = status_code
+        self._data = data
+        self._total = None
+        self._errors = errors or []
+        self._filename = filename
+
+    @property
+    def filename(self) -> Any:
+        """Filename.
+
+        The given filename of the response header.
+        """
+        return self._filename
+
+    @property
+    def data(self) -> Any:
+        """Response data.
+
+        The file content as bytes.
+        """
+        return self._data
+
+    @property
+    def total(self) -> Optional[int]:
+        """NOT AVAILABLE IN FILE RESPONSE"""
+
+        raise DaktelaFileResponseException('daktela.response.DaktelaFileResponse.total')
+
+    def as_list(self) -> List[Dict[str, Any]]:
+        """NOT AVAILABLE IN FILE RESPONSE"""
+
+        raise DaktelaFileResponseException('daktela.response.DaktelaFileResponse.as_list()')
+
+    def as_dict(self) -> Dict[str, Any]:
+        """NOT AVAILABLE IN FILE RESPONSE"""
+
+        raise DaktelaFileResponseException('daktela.response.DaktelaFileResponse.as_dict()')
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """NOT AVAILABLE IN FILE RESPONSE"""
+
+        raise DaktelaFileResponseException('daktela.response.DaktelaFileResponse.get()')
+
+    def __iter__(self) -> Iterator[Dict[str, Any]]:
+        """NOT AVAILABLE IN FILE RESPONSE"""
+
+        raise DaktelaFileResponseException('daktela.response.DaktelaFileResponse.__iter__()')
+
+    def __len__(self) -> int:
+        """Return the file size in bytes."""
+        if self._data is None:
+            return 0
+
+        return self._data.__len__()
+
+    def __repr__(self) -> str:
+        return (
+            f"DaktelaFileResponse(status_code={self._status_code}, "
+            f"filename={self._filename}, len={len(self)})"
         )

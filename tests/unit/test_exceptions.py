@@ -8,6 +8,7 @@ from daktela import (
     DaktelaTimeoutException,
     DaktelaUnauthorizedException,
     DaktelaValidationException,
+    DaktelaFileResponseException,
 )
 
 
@@ -77,6 +78,13 @@ class TestDaktelaExceptions:
         assert e.status_code == 422
         assert e.errors == ["field error"]
 
+    def test_file_response_exception(self) -> None:
+        """Test DaktelaFileResponseException."""
+        e = DaktelaFileResponseException('MY_FUNCTION', ['error 01', 'error 02'])
+        assert e.message == 'Function or property is not available in DaktelaFileResponse: "MY_FUNCTION".'
+        assert e.status_code is None
+        assert e.errors == ['error 01', 'error 02']
+
     def test_exception_inheritance(self) -> None:
         """Test that all exceptions inherit from DaktelaException."""
         assert issubclass(DaktelaUnauthorizedException, DaktelaException)
@@ -85,3 +93,4 @@ class TestDaktelaExceptions:
         assert issubclass(DaktelaConnectionException, DaktelaException)
         assert issubclass(DaktelaTimeoutException, DaktelaException)
         assert issubclass(DaktelaValidationException, DaktelaException)
+        assert issubclass(DaktelaFileResponseException, DaktelaException)
