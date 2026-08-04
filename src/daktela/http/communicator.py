@@ -17,7 +17,7 @@ from ..exceptions import (
     DaktelaUnauthorizedException,
     DaktelaValidationException,
 )
-from ..response import DaktelaResponse
+from ..response import DaktelaResponse, DaktelaFileResponse
 from .rate_limit import RateLimitConfig
 from .retry import RetryConfig
 
@@ -217,21 +217,39 @@ class ApiCommunicator:
         total = None
         errors: List[Any] = []
 
-        if response.content:
+        if response.headers.get('content-type') == 'application/json' and response.content:
             try:
                 json_data = response.json()
                 data, total, errors = self._parse_response_body(json_data)
             except ValueError:
                 pass
 
+            daktela_response = DaktelaResponse(
+                status_code=status_code,
+                data=data,
+                total=total,
+                errors=errors,
+            )
+        elif response.headers.get('content-type') == 'audio/opus' and response.content:
+            data = response.content
+
+            daktela_response = DaktelaFileResponse(
+                status_code=status_code,
+                data=data,
+                filename=response.headers.get('filename'),
+                errors=errors,
+            )
+        else:
+            daktela_response = DaktelaResponse(
+                status_code=status_code,
+                data=data,
+                total=total,
+                errors=errors,
+            )
+
         self._raise_for_status(status_code, errors, response)
 
-        return DaktelaResponse(
-            status_code=status_code,
-            data=data,
-            total=total,
-            errors=errors,
-        )
+        return daktela_response
 
     def _parse_response_body(
         self, json_data: Dict[str, Any]
