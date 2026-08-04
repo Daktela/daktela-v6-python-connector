@@ -17,7 +17,7 @@ from ..exceptions import (
     DaktelaUnauthorizedException,
     DaktelaValidationException,
 )
-from ..response import DaktelaResponse, DaktelaFileResponse
+from ..response import DaktelaFileResponse, DaktelaResponse
 from .rate_limit import RateLimitConfig
 from .retry import RetryConfig
 
