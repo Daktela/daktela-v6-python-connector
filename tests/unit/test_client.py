@@ -14,7 +14,7 @@ from daktela import (
     DaktelaQuery,
     DaktelaSort,
     DaktelaUnauthorizedException,
-    RetryConfig,
+    RetryConfig, DaktelaFileResponse,
 )
 
 
@@ -200,3 +200,31 @@ class TestDaktelaClient:
         assert result["healthy"] is True
         assert "latency_ms" in result
         assert result["status_code"] == 200
+
+    def test_get_single_not_application_json(self, client: DaktelaClient, httpx_mock: HTTPXMock) -> None:
+        """Test GET request for single resource."""
+        httpx_mock.add_response(
+            url='https://test.daktela.com/api/v6/tickets/123',
+            text='data',
+        )
+
+        response = client.get('tickets/123')
+
+        assert response.is_success
+        assert response.data is None
+        assert response.total is None
+
+    def test_audio_file_response(self, client: DaktelaClient, httpx_mock: HTTPXMock) -> None:
+        """Test audio file response."""
+        httpx_mock.add_response(
+            url="https://test.daktela.com/api/v6/download/123",
+            content=b'x\00x\00x\00x\00',
+            headers={'content-type': 'audio/opus', 'filename': 'audio.opus'},
+        )
+
+        response = client.get('download/123')
+
+        assert isinstance(response, DaktelaFileResponse)
+        assert response.is_success
+        assert response.data == b'x\00x\00x\00x\00'
+        assert response.filename == 'audio.opus'
