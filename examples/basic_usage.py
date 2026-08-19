@@ -37,7 +37,7 @@ def main() -> None:
         print(f"Ticket: {ticket.get('name')} - {ticket.get('title')}")
 
     # Get a single resource
-    response = client.get("tickets/123")
+    response = client.get_one("tickets", "123")
     ticket = response.as_dict()
     print(f"Single ticket: {ticket}")
 
@@ -62,8 +62,8 @@ def main() -> None:
         },
     )
 
-    # Delete a resource
-    response = client.delete("tickets/123")
+    # Delete a resource, with an optional API-specific query parameter
+    response = client.delete("tickets/123", {"audit": True})
 
     # Using pagination helper
     pagination = DaktelaPagination.page(page_number=2, page_size=25)

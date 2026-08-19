@@ -28,6 +28,7 @@ class TestDaktelaResponse:
         assert not r.is_success
         assert r.has_errors
         assert r.errors == ["Invalid field"]
+        assert r.first_error == "Invalid field"
 
     def test_as_list_with_list_data(self) -> None:
         """Test as_list with list data."""
@@ -76,6 +77,11 @@ class TestDaktelaResponse:
         r = DaktelaResponse(status_code=200, data=None)
         assert r.as_dict() == {}
 
+    def test_as_dict_with_non_object_data(self) -> None:
+        """Non-object response values do not violate the dictionary contract."""
+        assert DaktelaResponse(status_code=200, data="pong").as_dict() == {}
+        assert DaktelaResponse(status_code=200, data=["pong"]).as_dict() == {}
+
     def test_get_method(self) -> None:
         """Test get method."""
         r = DaktelaResponse(
@@ -116,6 +122,15 @@ class TestDaktelaResponse:
         """Test bool with success but no data."""
         r = DaktelaResponse(status_code=200, data=None)
         assert bool(r) is False
+
+    def test_empty_response_helpers(self) -> None:
+        assert DaktelaResponse(200, []).is_empty
+        assert DaktelaResponse(200, {}).is_empty
+        assert DaktelaResponse(200, "").is_empty
+        assert not DaktelaResponse(200, 0).is_empty
+        assert not DaktelaResponse(200, {"id": 1}).is_empty
+        assert DaktelaResponse(200).first_error is None
+        assert not bool(DaktelaResponse(200, []))
 
     def test_bool_error(self) -> None:
         """Test bool with error."""

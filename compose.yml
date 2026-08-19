@@ -1,0 +1,10 @@
+services:
+  sdk:
+    build:
+      context: .
+    working_dir: /workspace
+    environment:
+      COVERAGE_FILE: /tmp/daktela-python-coverage
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - .:/workspace

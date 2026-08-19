@@ -5,7 +5,6 @@ from daktela import (
     DaktelaConfig,
     DaktelaFilter,
     DaktelaQuery,
-    DaktelaSort,
 )
 
 
@@ -41,8 +40,7 @@ def main() -> None:
         print(f"\nFirst ticket: {first_ticket.get('name')}")
 
     # Collect all results into a list (be careful with large datasets!)
-    small_query = DaktelaQuery().take(10)
-    all_tickets = client.iterate("tickets", small_query).collect()
+    all_tickets = client.iterate("tickets", query, max_items=10).collect()
     print(f"\nCollected {len(all_tickets)} tickets")
 
     # Access iteration metadata
@@ -50,9 +48,13 @@ def main() -> None:
     for ticket in iterator:
         pass  # Process tickets
 
-    print(f"\nIteration stats:")
+    print("\nIteration stats:")
     print(f"  Total items in dataset: {iterator.total}")
     print(f"  Items processed: {iterator.items_yielded}")
+
+    # Iterate page responses when totals and status are needed per request
+    for page in client.iterate("tickets", query, page_size=50).pages():
+        print(f"Page status: {page.status_code}, total: {page.total}")
 
     client.close()
 

@@ -9,7 +9,7 @@ class AuthMethod(Enum):
     Attributes:
         HEADER: Send access token in X-AUTH-TOKEN header (recommended)
         QUERY: Send access token as query parameter
-        COOKIE: Send access token as cookie
+        COOKIE: Send access token in the c_user cookie
     """
 
     HEADER = "header"

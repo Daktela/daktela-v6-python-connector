@@ -1,5 +1,7 @@
 """Tests for DaktelaQuery."""
 
+import pytest
+
 from daktela import DaktelaFilter, DaktelaPagination, DaktelaQuery, DaktelaSort
 
 
@@ -14,6 +16,7 @@ class TestDaktelaQuery:
         assert q.get_sorts() == []
         assert q.get_take() is None
         assert q.get_skip() is None
+        assert q.get_params() == {}
 
     def test_fields(self) -> None:
         """Test adding fields."""
@@ -96,8 +99,9 @@ class TestDaktelaQuery:
         params = q.to_params()
 
         assert params["fields"] == ["name", "title"]
-        assert len(params["filter"]) == 1
-        assert params["filter"][0]["field"] == "stage"
+        assert params["filter"]["logic"] == "and"
+        assert len(params["filter"]["filters"]) == 1
+        assert params["filter"]["filters"][0]["field"] == "stage"
         assert len(params["sort"]) == 1
         assert params["sort"][0]["field"] == "created"
         assert params["take"] == 50
@@ -105,7 +109,7 @@ class TestDaktelaQuery:
 
     def test_copy(self) -> None:
         """Test copy method."""
-        q1 = DaktelaQuery().fields("name").take(50)
+        q1 = DaktelaQuery().fields("name").take(50).param("custom", {"nested": [1]})
         q2 = q1.copy()
 
         assert q2.get_fields() == ["name"]
@@ -113,15 +117,61 @@ class TestDaktelaQuery:
 
         # Modify copy shouldn't affect original
         q2.fields("title")
+        q2.get_params()["custom"]["nested"].append(2)
         assert q1.get_fields() == ["name"]
         assert q2.get_fields() == ["name", "title"]
+        assert q1.get_params() == {"custom": {"nested": [1]}}
 
     def test_repr(self) -> None:
         """Test repr."""
-        q = DaktelaQuery().fields("name").take(50)
+        assert repr(DaktelaQuery()) == "DaktelaQuery()"
+        q = (
+            DaktelaQuery()
+            .fields("name")
+            .filter(DaktelaFilter.eq("active", True))
+            .sort(DaktelaSort.asc("name"))
+            .take(50)
+            .skip(10)
+            .param("custom", "value")
+        )
         r = repr(q)
         assert "fields" in r
         assert "take" in r
+        assert "filters" in r
+        assert "sorts" in r
+        assert "skip" in r
+        assert "params" in r
+
+    def test_single_group_is_top_level_filter(self) -> None:
+        query = DaktelaQuery().filter(
+            DaktelaFilter.or_(
+                DaktelaFilter.eq("stage", "OPEN"),
+                DaktelaFilter.eq("stage", "NEW"),
+            )
+        )
+        assert query.to_params()["filter"]["logic"] == "or"
+
+    def test_additional_parameters(self) -> None:
+        query = DaktelaQuery().params({"custom": "one", "take": 999}).param(
+            "another", True
+        )
+        query.take(5)
+        assert query.get_params() == {"custom": "one", "take": 999, "another": True}
+        assert query.to_params() == {"custom": "one", "take": 5, "another": True}
+
+    def test_empty_parameter_name_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="key"):
+            DaktelaQuery().param("", "value")
+
+    @pytest.mark.parametrize("method", ["take", "skip"])
+    def test_negative_pagination_is_rejected(self, method: str) -> None:
+        with pytest.raises(ValueError):
+            getattr(DaktelaQuery(), method)(-1)
+
+    def test_pagination_can_clear_values(self) -> None:
+        query = DaktelaQuery().take(10).skip(20).pagination()
+        assert query.get_take() is None
+        assert query.get_skip() is None
 
 
 class TestDaktelaPagination:
@@ -158,3 +208,23 @@ class TestDaktelaPagination:
         p2 = p1.next_page()
         assert p2.take is None
         assert p2.skip is None
+
+    def test_repr(self) -> None:
+        assert repr(DaktelaPagination(take=10, skip=20)) == (
+            "DaktelaPagination(take=10, skip=20)"
+        )
+
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: DaktelaPagination(take=-1),
+            lambda: DaktelaPagination(skip=-1),
+            lambda: DaktelaPagination.page(0, 10),
+            lambda: DaktelaPagination.page(1, 0),
+            lambda: DaktelaPagination.limit(-1),
+            lambda: DaktelaPagination.limit(1, -1),
+        ],
+    )
+    def test_invalid_pagination(self, factory: object) -> None:
+        with pytest.raises(ValueError):
+            factory()  # type: ignore[operator]

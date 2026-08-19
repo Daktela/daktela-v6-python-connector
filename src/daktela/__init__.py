@@ -33,6 +33,7 @@ from .exceptions import (
     DaktelaConnectionException,
     DaktelaException,
     DaktelaNotFoundException,
+    DaktelaProtocolException,
     DaktelaRateLimitException,
     DaktelaTimeoutException,
     DaktelaUnauthorizedException,
@@ -42,8 +43,9 @@ from .http import RateLimitConfig, RetryConfig
 from .iterator import PaginatedIterator
 from .query import DaktelaFilter, DaktelaPagination, DaktelaQuery, DaktelaSort
 from .response import DaktelaResponse
+from .utils import normalize_phone_number
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 __all__ = [
     # Main client
@@ -67,9 +69,12 @@ __all__ = [
     "DaktelaUnauthorizedException",
     "DaktelaNotFoundException",
     "DaktelaRateLimitException",
+    "DaktelaProtocolException",
     "DaktelaConnectionException",
     "DaktelaTimeoutException",
     "DaktelaValidationException",
+    # Utilities
+    "normalize_phone_number",
     # Version
     "__version__",
 ]

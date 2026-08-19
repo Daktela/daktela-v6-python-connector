@@ -1,6 +1,7 @@
 """Retry configuration for HTTP requests."""
 
 from dataclasses import dataclass
+from random import uniform
 from typing import Tuple
 
 
@@ -15,14 +16,32 @@ class RetryConfig:
         initial_delay: Initial delay in seconds before first retry (default: 1.0)
         max_delay: Maximum delay in seconds between retries (default: 60.0)
         exponential_base: Base for exponential backoff calculation (default: 2.0)
-        retry_on_status: HTTP status codes that trigger a retry (default: 429, 500, 502, 503, 504)
+        retry_on_status: HTTP status codes that trigger a retry
+        retry_on_connection_error: Whether to retry connection failures
+        retry_on_timeout: Whether to retry request timeouts
+        jitter: Maximum random jitter added to each delay in seconds
     """
 
     max_retries: int = 3
     initial_delay: float = 1.0
     max_delay: float = 60.0
     exponential_base: float = 2.0
-    retry_on_status: Tuple[int, ...] = (429, 500, 502, 503, 504)
+    retry_on_status: Tuple[int, ...] = (408, 500, 502, 503, 504)
+    retry_on_connection_error: bool = True
+    retry_on_timeout: bool = True
+    jitter: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.max_retries < 0:
+            raise ValueError("max_retries must not be negative")
+        if self.initial_delay < 0:
+            raise ValueError("initial_delay must not be negative")
+        if self.max_delay < 0:
+            raise ValueError("max_delay must not be negative")
+        if self.exponential_base < 1:
+            raise ValueError("exponential_base must be at least one")
+        if self.jitter < 0:
+            raise ValueError("jitter must not be negative")
 
     def get_delay(self, attempt: int) -> float:
         """Calculate delay for a given retry attempt.
@@ -35,7 +54,11 @@ class RetryConfig:
         Returns:
             Delay in seconds, capped at max_delay
         """
+        if attempt < 0:
+            raise ValueError("attempt must not be negative")
         delay = self.initial_delay * (self.exponential_base**attempt)
+        if self.jitter:
+            delay += uniform(0.0, self.jitter)
         return min(delay, self.max_delay)
 
     def should_retry(self, status_code: int, attempt: int) -> bool:

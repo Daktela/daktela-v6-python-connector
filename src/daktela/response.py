@@ -1,6 +1,6 @@
 """Response wrapper for Daktela API responses."""
 
-from typing import Any, Dict, Iterator, List, Optional, TypeVar
+from typing import Any, Dict, Iterator, List, Mapping, Optional, TypeVar
 
 T = TypeVar("T")
 
@@ -65,11 +65,25 @@ class DaktelaResponse:
         """Check if the response contains any errors."""
         return len(self._errors) > 0
 
-    def as_list(self) -> List[Dict[str, Any]]:
+    @property
+    def first_error(self) -> Any:
+        """Return the first API error, or ``None`` when there are no errors."""
+        return self._errors[0] if self._errors else None
+
+    @property
+    def is_empty(self) -> bool:
+        """Return whether the response contains no data."""
+        if self._data is None:
+            return True
+        if isinstance(self._data, (list, dict, str)):
+            return len(self._data) == 0
+        return False
+
+    def as_list(self) -> List[Any]:
         """Get the response data as a list.
 
         Returns:
-            List of dictionaries. If data is a single object, wraps it in a list.
+            List of values. If data is a single value, wraps it in a list.
             If data is None, returns an empty list.
         """
         if self._data is None:
@@ -85,11 +99,15 @@ class DaktelaResponse:
             Dictionary. If data is a list, returns the first element.
             If data is None or empty list, returns an empty dict.
         """
-        if self._data is None:
-            return {}
-        if isinstance(self._data, list):
-            return self._data[0] if self._data else {}
-        return self._data
+        if isinstance(self._data, Mapping):
+            return dict(self._data)
+        if (
+            isinstance(self._data, list)
+            and self._data
+            and isinstance(self._data[0], Mapping)
+        ):
+            return dict(self._data[0])
+        return {}
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a value from the response data by key.
@@ -104,7 +122,7 @@ class DaktelaResponse:
         data = self.as_dict()
         return data.get(key, default)
 
-    def __iter__(self) -> Iterator[Dict[str, Any]]:
+    def __iter__(self) -> Iterator[Any]:
         """Iterate over response data items."""
         return iter(self.as_list())
 
@@ -114,7 +132,7 @@ class DaktelaResponse:
 
     def __bool__(self) -> bool:
         """Return True if response is successful and has data."""
-        return self.is_success and self._data is not None
+        return self.is_success and not self.is_empty
 
     def __repr__(self) -> str:
         return (

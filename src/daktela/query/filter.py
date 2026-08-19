@@ -4,18 +4,10 @@ from typing import Any, Dict, List, Optional, Sequence
 
 
 class DaktelaFilter:
-    """Builder for Daktela API filter expressions.
+    """A simple filter or a nested logical filter group.
 
-    Supports all standard filter operators and OR combinations.
-
-    Example:
-        >>> DaktelaFilter.eq("stage", "OPEN")
-        >>> DaktelaFilter.gte("created", "2024-01-01")
-        >>> DaktelaFilter.in_("status", ["NEW", "OPEN"])
-        >>> DaktelaFilter.or_(
-        ...     DaktelaFilter.eq("stage", "OPEN"),
-        ...     DaktelaFilter.eq("stage", "NEW")
-        ... )
+    Prefer the named constructors for common operators and :meth:`custom` for
+    API operators introduced after this SDK release.
     """
 
     def __init__(
@@ -24,188 +16,182 @@ class DaktelaFilter:
         operator: Optional[str] = None,
         value: Any = None,
         or_filters: Optional[List["DaktelaFilter"]] = None,
+        *,
+        logic: Optional[str] = None,
+        filters: Optional[Sequence["DaktelaFilter"]] = None,
+        ignore_case: Optional[bool] = None,
     ) -> None:
         """Initialize a filter.
 
-        Use the static factory methods instead of calling this directly.
+        ``or_filters`` is retained for compatibility with version 1.0. New
+        code should use :meth:`or_` or :meth:`and_`.
         """
+        group_filters = list(filters) if filters is not None else or_filters
+        group_logic = logic or ("or" if or_filters is not None else None)
+
+        if group_filters is not None:
+            if field is not None or operator is not None:
+                raise ValueError("filter groups cannot have a field or operator")
+            if group_logic not in {"and", "or"}:
+                raise ValueError("filter group logic must be 'and' or 'or'")
+            if not group_filters:
+                raise ValueError("filter groups must contain at least one filter")
+        else:
+            if not field:
+                raise ValueError("filter field must not be empty")
+            if not operator:
+                raise ValueError("filter operator must not be empty")
+
         self._field = field
         self._operator = operator
         self._value = value
-        self._or_filters = or_filters
-        self._is_or = or_filters is not None
+        self._filters = group_filters
+        self._logic = group_logic
+        self._ignore_case = ignore_case
 
     @property
     def field(self) -> Optional[str]:
-        """Get the field name."""
+        """Return the field name for a simple filter."""
         return self._field
 
     @property
     def operator(self) -> Optional[str]:
-        """Get the operator."""
+        """Return the operator for a simple filter."""
         return self._operator
 
     @property
     def value(self) -> Any:
-        """Get the filter value."""
+        """Return the filter value."""
         return self._value
 
     @property
+    def is_group(self) -> bool:
+        """Return whether this filter is a logical group."""
+        return self._filters is not None
+
+    @property
     def is_or(self) -> bool:
-        """Check if this is an OR filter combination."""
-        return self._is_or
+        """Return whether this filter is an OR group."""
+        return self.is_group and self._logic == "or"
+
+    @property
+    def logic(self) -> Optional[str]:
+        """Return the group logic, if this is a group."""
+        return self._logic
+
+    @property
+    def filters(self) -> Optional[List["DaktelaFilter"]]:
+        """Return a copy of the filters in this group."""
+        return list(self._filters) if self._filters is not None else None
 
     @property
     def or_filters(self) -> Optional[List["DaktelaFilter"]]:
-        """Get the list of OR filters."""
-        return self._or_filters
+        """Compatibility alias for the filters in an OR group."""
+        return self.filters if self.is_or else None
+
+    @staticmethod
+    def custom(
+        field: str,
+        operator: str,
+        value: Any = None,
+        *,
+        ignore_case: Optional[bool] = None,
+    ) -> "DaktelaFilter":
+        """Create a filter using an arbitrary API operator."""
+        return DaktelaFilter(field, operator, value, ignore_case=ignore_case)
 
     @staticmethod
     def eq(field: str, value: Any) -> "DaktelaFilter":
-        """Create an equals filter (field = value).
-
-        Args:
-            field: The field name
-            value: The value to match
-
-        Returns:
-            A new filter instance
-        """
         return DaktelaFilter(field, "eq", value)
 
     @staticmethod
     def neq(field: str, value: Any) -> "DaktelaFilter":
-        """Create a not equals filter (field != value).
-
-        Args:
-            field: The field name
-            value: The value to exclude
-
-        Returns:
-            A new filter instance
-        """
         return DaktelaFilter(field, "neq", value)
 
     @staticmethod
     def gt(field: str, value: Any) -> "DaktelaFilter":
-        """Create a greater than filter (field > value).
-
-        Args:
-            field: The field name
-            value: The value to compare
-
-        Returns:
-            A new filter instance
-        """
         return DaktelaFilter(field, "gt", value)
 
     @staticmethod
     def gte(field: str, value: Any) -> "DaktelaFilter":
-        """Create a greater than or equal filter (field >= value).
-
-        Args:
-            field: The field name
-            value: The value to compare
-
-        Returns:
-            A new filter instance
-        """
         return DaktelaFilter(field, "gte", value)
 
     @staticmethod
     def lt(field: str, value: Any) -> "DaktelaFilter":
-        """Create a less than filter (field < value).
-
-        Args:
-            field: The field name
-            value: The value to compare
-
-        Returns:
-            A new filter instance
-        """
         return DaktelaFilter(field, "lt", value)
 
     @staticmethod
     def lte(field: str, value: Any) -> "DaktelaFilter":
-        """Create a less than or equal filter (field <= value).
-
-        Args:
-            field: The field name
-            value: The value to compare
-
-        Returns:
-            A new filter instance
-        """
         return DaktelaFilter(field, "lte", value)
 
     @staticmethod
     def like(field: str, value: Any) -> "DaktelaFilter":
-        """Create a like filter (field contains value).
-
-        Args:
-            field: The field name
-            value: The value to search for
-
-        Returns:
-            A new filter instance
-        """
         return DaktelaFilter(field, "like", value)
 
     @staticmethod
+    def not_like(field: str, value: Any) -> "DaktelaFilter":
+        return DaktelaFilter(field, "notlike", value)
+
+    @staticmethod
+    def begins(field: str, value: Any) -> "DaktelaFilter":
+        return DaktelaFilter(field, "begins", value)
+
+    @staticmethod
+    def not_begins(field: str, value: Any) -> "DaktelaFilter":
+        return DaktelaFilter(field, "notbegins", value)
+
+    @staticmethod
+    def ends(field: str, value: Any) -> "DaktelaFilter":
+        return DaktelaFilter(field, "ends", value)
+
+    @staticmethod
+    def not_ends(field: str, value: Any) -> "DaktelaFilter":
+        return DaktelaFilter(field, "notends", value)
+
+    @staticmethod
     def in_(field: str, values: Sequence[Any]) -> "DaktelaFilter":
-        """Create an in filter (field in values).
-
-        Args:
-            field: The field name
-            values: The values to match
-
-        Returns:
-            A new filter instance
-        """
         return DaktelaFilter(field, "in", list(values))
 
     @staticmethod
     def not_in(field: str, values: Sequence[Any]) -> "DaktelaFilter":
-        """Create a not in filter (field not in values).
+        return DaktelaFilter(field, "notin", list(values))
 
-        Args:
-            field: The field name
-            values: The values to exclude
+    @staticmethod
+    def is_null(field: str) -> "DaktelaFilter":
+        return DaktelaFilter(field, "isnull")
 
-        Returns:
-            A new filter instance
-        """
-        return DaktelaFilter(field, "nin", list(values))
+    @staticmethod
+    def is_not_null(field: str) -> "DaktelaFilter":
+        return DaktelaFilter(field, "isnotnull")
+
+    @staticmethod
+    def and_(*filters: "DaktelaFilter") -> "DaktelaFilter":
+        return DaktelaFilter(logic="and", filters=filters)
 
     @staticmethod
     def or_(*filters: "DaktelaFilter") -> "DaktelaFilter":
-        """Create an OR combination of filters.
-
-        Args:
-            *filters: The filters to combine with OR
-
-        Returns:
-            A new filter instance representing the OR combination
-        """
-        return DaktelaFilter(or_filters=list(filters))
+        return DaktelaFilter(logic="or", filters=filters)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert this filter to a dictionary for API serialization.
-
-        Returns:
-            Dictionary representation of the filter
-        """
-        if self._is_or and self._or_filters:
+        """Convert this filter to the nested API query representation."""
+        if self._filters is not None:
             return {
-                "or": [f.to_dict() for f in self._or_filters]
+                "logic": self._logic,
+                "filters": [filter_.to_dict() for filter_ in self._filters],
             }
-        return {
+
+        result: Dict[str, Any] = {
             "field": self._field,
             "operator": self._operator,
-            "value": self._value,
         }
+        if self._value is not None:
+            result["value"] = self._value
+        if self._ignore_case is not None:
+            result["ignoreCase"] = self._ignore_case
+        return result
 
     def __repr__(self) -> str:
-        if self._is_or:
-            return f"DaktelaFilter.or_({', '.join(repr(f) for f in (self._or_filters or []))})"
+        if self._filters is not None:
+            filters = ", ".join(repr(filter_) for filter_ in self._filters)
+            return f"DaktelaFilter.{self._logic}_({filters})"
         return f"DaktelaFilter.{self._operator}({self._field!r}, {self._value!r})"

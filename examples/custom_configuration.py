@@ -41,31 +41,21 @@ def main() -> None:
         retry_on_status=(429, 500, 502, 503, 504),  # Which status codes to retry
     )
 
-    # Disable retries entirely
-    no_retry = RetryConfig.disabled()
-
-    # Aggressive retry settings
-    aggressive_retry = RetryConfig.aggressive()
-
     # Custom rate limit handling
     rate_limit_config = RateLimitConfig(
         enabled=True,
+        max_retries=3,
         max_wait=120.0,  # Maximum time to wait for rate limit reset
         default_retry_after=60.0,  # Default wait if no Retry-After header
     )
 
-    # Disable rate limit handling (will raise exception immediately)
-    no_rate_limit = RateLimitConfig.disabled()
-
-    # Patient rate limit handling (willing to wait longer)
-    patient_rate_limit = RateLimitConfig.patient()
-
     # Create client with custom configuration
-    client = DaktelaClient(
+    configured_client = DaktelaClient(
         config=config,
         retry_config=retry_config,
         rate_limit_config=rate_limit_config,
     )
+    configured_client.close()
 
     # Using the client as a context manager (auto-closes)
     with DaktelaClient(config) as client:
@@ -74,7 +64,7 @@ def main() -> None:
     # Client is automatically closed here
 
     # URL normalization examples
-    # All of these produce the same base URL
+    # HTTPS is the default; an explicit HTTP scheme is preserved
     configs = [
         DaktelaConfig(url="my.daktela.com", access_token="token"),
         DaktelaConfig(url="https://my.daktela.com", access_token="token"),
@@ -82,31 +72,30 @@ def main() -> None:
         DaktelaConfig(url="https://my.daktela.com/api/v6/", access_token="token"),
     ]
 
-    for c in configs:
-        print(f"Normalized URL: {c.url}")
-        print(f"Base URL: {c.base_url}")
+    for normalized_config in configs:
+        print(f"Normalized URL: {normalized_config.url}")
+        print(f"Base URL: {normalized_config.base_url}")
 
     # Authentication methods
-    # Header (default, recommended)
-    header_auth = DaktelaConfig(
-        url="my.daktela.com",
-        access_token="token",
-        auth_method=AuthMethod.HEADER,  # Sends X-AUTH-TOKEN header
-    )
-
-    # Query parameter
-    query_auth = DaktelaConfig(
-        url="my.daktela.com",
-        access_token="token",
-        auth_method=AuthMethod.QUERY,  # Sends accessToken query param
-    )
-
-    # Cookie
-    cookie_auth = DaktelaConfig(
-        url="my.daktela.com",
-        access_token="token",
-        auth_method=AuthMethod.COOKIE,  # Sends accessToken cookie
-    )
+    authentication_configs = [
+        DaktelaConfig(
+            url="my.daktela.com",
+            access_token="token",
+            auth_method=AuthMethod.HEADER,  # Sends X-AUTH-TOKEN header
+        ),
+        DaktelaConfig(
+            url="my.daktela.com",
+            access_token="token",
+            auth_method=AuthMethod.QUERY,  # Sends accessToken query param
+        ),
+        DaktelaConfig(
+            url="my.daktela.com",
+            access_token="token",
+            auth_method=AuthMethod.COOKIE,  # Sends c_user cookie
+        ),
+    ]
+    for authentication_config in authentication_configs:
+        print(f"Authentication method: {authentication_config.auth_method.value}")
 
 
 if __name__ == "__main__":

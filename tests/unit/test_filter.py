@@ -1,118 +1,126 @@
 """Tests for DaktelaFilter."""
 
+import pytest
+
 from daktela import DaktelaFilter
 
 
-class TestDaktelaFilter:
-    """Tests for DaktelaFilter class."""
+@pytest.mark.parametrize(
+    ("filter_", "operator", "value"),
+    [
+        (DaktelaFilter.eq("field", 1), "eq", 1),
+        (DaktelaFilter.neq("field", 1), "neq", 1),
+        (DaktelaFilter.gt("field", 1), "gt", 1),
+        (DaktelaFilter.gte("field", 1), "gte", 1),
+        (DaktelaFilter.lt("field", 1), "lt", 1),
+        (DaktelaFilter.lte("field", 1), "lte", 1),
+        (DaktelaFilter.like("field", "x"), "like", "x"),
+        (DaktelaFilter.not_like("field", "x"), "notlike", "x"),
+        (DaktelaFilter.begins("field", "x"), "begins", "x"),
+        (DaktelaFilter.not_begins("field", "x"), "notbegins", "x"),
+        (DaktelaFilter.ends("field", "x"), "ends", "x"),
+        (DaktelaFilter.not_ends("field", "x"), "notends", "x"),
+        (DaktelaFilter.in_("field", [1, 2]), "in", [1, 2]),
+        (DaktelaFilter.not_in("field", [1, 2]), "notin", [1, 2]),
+        (DaktelaFilter.is_null("field"), "isnull", None),
+        (DaktelaFilter.is_not_null("field"), "isnotnull", None),
+    ],
+)
+def test_named_filter_factories(
+    filter_: DaktelaFilter, operator: str, value: object
+) -> None:
+    assert filter_.field == "field"
+    assert filter_.operator == operator
+    assert filter_.value == value
+    assert not filter_.is_group
+    assert not filter_.is_or
+    assert filter_.logic is None
+    assert filter_.filters is None
+    assert filter_.or_filters is None
 
-    def test_eq_filter(self) -> None:
-        """Test equals filter."""
-        f = DaktelaFilter.eq("stage", "OPEN")
-        assert f.field == "stage"
-        assert f.operator == "eq"
-        assert f.value == "OPEN"
-        assert not f.is_or
 
-    def test_neq_filter(self) -> None:
-        """Test not equals filter."""
-        f = DaktelaFilter.neq("status", "CLOSED")
-        assert f.field == "status"
-        assert f.operator == "neq"
-        assert f.value == "CLOSED"
+def test_custom_filter_and_ignore_case() -> None:
+    filter_ = DaktelaFilter.custom("name", "future", "Alice", ignore_case=True)
+    assert filter_.to_dict() == {
+        "field": "name",
+        "operator": "future",
+        "value": "Alice",
+        "ignoreCase": True,
+    }
 
-    def test_gt_filter(self) -> None:
-        """Test greater than filter."""
-        f = DaktelaFilter.gt("priority", 5)
-        assert f.field == "priority"
-        assert f.operator == "gt"
-        assert f.value == 5
 
-    def test_gte_filter(self) -> None:
-        """Test greater than or equal filter."""
-        f = DaktelaFilter.gte("created", "2024-01-01")
-        assert f.field == "created"
-        assert f.operator == "gte"
-        assert f.value == "2024-01-01"
+def test_null_filter_omits_value() -> None:
+    assert DaktelaFilter.is_null("deleted").to_dict() == {
+        "field": "deleted",
+        "operator": "isnull",
+    }
 
-    def test_lt_filter(self) -> None:
-        """Test less than filter."""
-        f = DaktelaFilter.lt("priority", 10)
-        assert f.field == "priority"
-        assert f.operator == "lt"
-        assert f.value == 10
 
-    def test_lte_filter(self) -> None:
-        """Test less than or equal filter."""
-        f = DaktelaFilter.lte("edited", "2024-12-31")
-        assert f.field == "edited"
-        assert f.operator == "lte"
-        assert f.value == "2024-12-31"
+def test_nested_filter_groups() -> None:
+    filter_ = DaktelaFilter.and_(
+        DaktelaFilter.eq("active", True),
+        DaktelaFilter.or_(
+            DaktelaFilter.eq("team", "sales"),
+            DaktelaFilter.eq("team", "support"),
+        ),
+    )
 
-    def test_like_filter(self) -> None:
-        """Test like filter."""
-        f = DaktelaFilter.like("name", "test")
-        assert f.field == "name"
-        assert f.operator == "like"
-        assert f.value == "test"
+    assert filter_.is_group
+    assert filter_.logic == "and"
+    assert filter_.filters is not None
+    assert filter_.to_dict() == {
+        "logic": "and",
+        "filters": [
+            {"field": "active", "operator": "eq", "value": True},
+            {
+                "logic": "or",
+                "filters": [
+                    {"field": "team", "operator": "eq", "value": "sales"},
+                    {"field": "team", "operator": "eq", "value": "support"},
+                ],
+            },
+        ],
+    }
+    assert "and_" in repr(filter_)
 
-    def test_in_filter(self) -> None:
-        """Test in filter."""
-        f = DaktelaFilter.in_("status", ["NEW", "OPEN", "PENDING"])
-        assert f.field == "status"
-        assert f.operator == "in"
-        assert f.value == ["NEW", "OPEN", "PENDING"]
 
-    def test_not_in_filter(self) -> None:
-        """Test not in filter."""
-        f = DaktelaFilter.not_in("category", ["spam", "deleted"])
-        assert f.field == "category"
-        assert f.operator == "nin"
-        assert f.value == ["spam", "deleted"]
+def test_or_group_and_compatibility_alias() -> None:
+    filters = [DaktelaFilter.eq("stage", "OPEN"), DaktelaFilter.eq("stage", "NEW")]
+    filter_ = DaktelaFilter(or_filters=filters)
 
-    def test_or_filter(self) -> None:
-        """Test OR combination of filters."""
-        f = DaktelaFilter.or_(
-            DaktelaFilter.eq("stage", "OPEN"),
-            DaktelaFilter.eq("stage", "NEW"),
-        )
-        assert f.is_or
-        assert f.or_filters is not None
-        assert len(f.or_filters) == 2
-        assert f.or_filters[0].value == "OPEN"
-        assert f.or_filters[1].value == "NEW"
+    assert filter_.is_or
+    assert filter_.or_filters is not None
+    assert [item.value for item in filter_.or_filters] == ["OPEN", "NEW"]
+    assert filter_.to_dict()["logic"] == "or"
+    assert "or_" in repr(filter_)
 
-    def test_to_dict_simple(self) -> None:
-        """Test to_dict for simple filter."""
-        f = DaktelaFilter.eq("name", "test")
-        d = f.to_dict()
-        assert d == {
-            "field": "name",
-            "operator": "eq",
-            "value": "test",
-        }
 
-    def test_to_dict_or(self) -> None:
-        """Test to_dict for OR filter."""
-        f = DaktelaFilter.or_(
-            DaktelaFilter.eq("a", 1),
-            DaktelaFilter.eq("b", 2),
-        )
-        d = f.to_dict()
-        assert "or" in d
-        assert len(d["or"]) == 2
+def test_group_filters_property_is_a_copy() -> None:
+    group = DaktelaFilter.or_(DaktelaFilter.eq("field", "value"))
+    returned = group.filters
+    assert returned is not None
+    returned.clear()
+    assert group.filters is not None
+    assert len(group.filters) == 1
 
-    def test_repr_simple(self) -> None:
-        """Test repr for simple filter."""
-        f = DaktelaFilter.eq("stage", "OPEN")
-        assert "eq" in repr(f)
-        assert "stage" in repr(f)
-        assert "OPEN" in repr(f)
 
-    def test_repr_or(self) -> None:
-        """Test repr for OR filter."""
-        f = DaktelaFilter.or_(
-            DaktelaFilter.eq("a", 1),
-            DaktelaFilter.eq("b", 2),
-        )
-        assert "or_" in repr(f)
+def test_simple_repr() -> None:
+    representation = repr(DaktelaFilter.eq("stage", "OPEN"))
+    assert "eq" in representation
+    assert "stage" in representation
+    assert "OPEN" in representation
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: DaktelaFilter(),
+        lambda: DaktelaFilter("field", ""),
+        lambda: DaktelaFilter("field", "eq", logic="and", filters=[]),
+        lambda: DaktelaFilter(logic="xor", filters=[DaktelaFilter.eq("a", 1)]),
+        lambda: DaktelaFilter(logic="and", filters=[]),
+    ],
+)
+def test_invalid_filters(factory: object) -> None:
+    with pytest.raises(ValueError):
+        factory()  # type: ignore[operator]

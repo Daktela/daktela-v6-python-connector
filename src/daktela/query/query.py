@@ -1,6 +1,7 @@
 """Query builder for Daktela API requests."""
 
-from typing import Any, Dict, List, Optional
+from copy import deepcopy
+from typing import Any, Dict, List, Mapping, Optional
 
 from .filter import DaktelaFilter
 from .pagination import DaktelaPagination
@@ -28,6 +29,7 @@ class DaktelaQuery:
         self._sorts: List[DaktelaSort] = []
         self._take: Optional[int] = None
         self._skip: Optional[int] = None
+        self._additional_params: Dict[str, Any] = {}
 
     def fields(self, *field_names: str) -> "DaktelaQuery":
         """Add fields to retrieve.
@@ -111,8 +113,14 @@ class DaktelaQuery:
             self._take = pagination.take
             self._skip = pagination.skip
         else:
-            self._take = take
-            self._skip = skip
+            if take is not None:
+                self.take(take)
+            else:
+                self._take = None
+            if skip is not None:
+                self.skip(skip)
+            else:
+                self._skip = None
         return self
 
     def take(self, value: int) -> "DaktelaQuery":
@@ -124,6 +132,8 @@ class DaktelaQuery:
         Returns:
             Self for method chaining
         """
+        if value < 0:
+            raise ValueError("take must not be negative")
         self._take = value
         return self
 
@@ -136,7 +146,26 @@ class DaktelaQuery:
         Returns:
             Self for method chaining
         """
+        if value < 0:
+            raise ValueError("skip must not be negative")
         self._skip = value
+        return self
+
+    def param(self, key: str, value: Any) -> "DaktelaQuery":
+        """Add an API-specific query parameter.
+
+        Standard fields, filters, sorts, and pagination values take precedence
+        over additional parameters with the same key.
+        """
+        if not key:
+            raise ValueError("query parameter key must not be empty")
+        self._additional_params[key] = value
+        return self
+
+    def params(self, values: Mapping[str, Any]) -> "DaktelaQuery":
+        """Add multiple API-specific query parameters."""
+        for key, value in values.items():
+            self.param(key, value)
         return self
 
     def get_fields(self) -> List[str]:
@@ -159,19 +188,29 @@ class DaktelaQuery:
         """Get the skip value."""
         return self._skip
 
+    def get_params(self) -> Dict[str, Any]:
+        """Get a copy of the API-specific query parameters."""
+        return deepcopy(self._additional_params)
+
     def to_params(self) -> Dict[str, Any]:
         """Convert the query to URL parameters dictionary.
 
         Returns:
             Dictionary suitable for use as query parameters
         """
-        params: Dict[str, Any] = {}
+        params: Dict[str, Any] = deepcopy(self._additional_params)
 
         if self._fields:
             params["fields"] = self._fields
 
         if self._filters:
-            params["filter"] = [f.to_dict() for f in self._filters]
+            if len(self._filters) == 1 and self._filters[0].is_group:
+                params["filter"] = self._filters[0].to_dict()
+            else:
+                params["filter"] = {
+                    "logic": "and",
+                    "filters": [filter_.to_dict() for filter_ in self._filters],
+                }
 
         if self._sorts:
             params["sort"] = [s.to_dict() for s in self._sorts]
@@ -196,6 +235,7 @@ class DaktelaQuery:
         query._sorts = list(self._sorts)
         query._take = self._take
         query._skip = self._skip
+        query._additional_params = deepcopy(self._additional_params)
         return query
 
     def __repr__(self) -> str:
@@ -210,4 +250,6 @@ class DaktelaQuery:
             parts.append(f"take={self._take}")
         if self._skip is not None:
             parts.append(f"skip={self._skip}")
+        if self._additional_params:
+            parts.append(f"params={len(self._additional_params)}")
         return f"DaktelaQuery({', '.join(parts)})"

@@ -4,6 +4,7 @@ from daktela import (
     DaktelaConnectionException,
     DaktelaException,
     DaktelaNotFoundException,
+    DaktelaProtocolException,
     DaktelaRateLimitException,
     DaktelaTimeoutException,
     DaktelaUnauthorizedException,
@@ -85,3 +86,4 @@ class TestDaktelaExceptions:
         assert issubclass(DaktelaConnectionException, DaktelaException)
         assert issubclass(DaktelaTimeoutException, DaktelaException)
         assert issubclass(DaktelaValidationException, DaktelaException)
+        assert issubclass(DaktelaProtocolException, DaktelaException)

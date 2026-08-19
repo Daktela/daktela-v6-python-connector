@@ -6,6 +6,7 @@ from daktela import (
     DaktelaConnectionException,
     DaktelaException,
     DaktelaNotFoundException,
+    DaktelaProtocolException,
     DaktelaRateLimitException,
     DaktelaTimeoutException,
     DaktelaUnauthorizedException,
@@ -57,6 +58,11 @@ def main() -> None:
         response = client.get("tickets")
     except DaktelaConnectionException as e:
         print(f"Connection failed: {e.message}")
+
+    try:
+        response = client.get("tickets")
+    except DaktelaProtocolException as e:
+        print(f"Unexpected API response: {e.message}")
 
     # Catching all Daktela exceptions
     try:

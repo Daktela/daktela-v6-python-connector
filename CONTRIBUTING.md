@@ -2,45 +2,42 @@
 
 Thank you for your interest in contributing!
 
-## Development Setup
+## Development setup
 
 ```bash
 # Clone the repository
 git clone https://github.com/Daktela/daktela-v6-python-connector.git
 cd daktela-v6-python-connector
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install with dev dependencies
-pip install -e ".[dev]"
+# Build the development container
+docker compose build sdk
 ```
 
-## Running Tests
+## Running tests
 
 ```bash
-# Run all unit tests
-pytest tests/unit/ -v
-
-# Run with coverage
-pytest tests/unit/ -v --cov=daktela --cov-report=term-missing
+# Run the complete suite with the enforced coverage gate
+docker compose run --rm sdk pytest
 
 # Run specific test file
-pytest tests/unit/test_client.py -v
+docker compose run --rm sdk pytest tests/unit/test_client.py -v
 ```
 
-## Code Quality
+## Code quality
 
 ```bash
 # Type checking
-mypy src/daktela --ignore-missing-imports
+docker compose run --rm sdk mypy src/daktela
 
 # Linting
-ruff check src/
+docker compose run --rm sdk ruff check src/ tests/ examples/
 
 # Fix linting issues automatically
-ruff check src/ --fix
+docker compose run --rm sdk ruff check src/ tests/ examples/ --fix
+
+# Build and validate release artifacts
+docker compose run --rm sdk python -m build
+docker compose run --rm sdk twine check dist/*
 ```
 
 ## Pull Request Process

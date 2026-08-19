@@ -61,7 +61,7 @@ class DaktelaRateLimitException(DaktelaException):
     def __init__(
         self,
         message: str = "Rate limit exceeded",
-        retry_after: Optional[int] = None,
+        retry_after: Optional[float] = None,
         errors: Optional[List[Any]] = None,
     ) -> None:
         super().__init__(message, status_code=429, errors=errors)
@@ -100,3 +100,7 @@ class DaktelaValidationException(DaktelaException):
         errors: Optional[List[Any]] = None,
     ) -> None:
         super().__init__(message, status_code=status_code, errors=errors)
+
+
+class DaktelaProtocolException(DaktelaException):
+    """Raised when an API response does not match the expected JSON protocol."""

@@ -37,7 +37,7 @@ class TestDaktelaClient:
     def test_get_simple(self, client: DaktelaClient, httpx_mock: HTTPXMock) -> None:
         """Test simple GET request."""
         httpx_mock.add_response(
-            url="https://test.daktela.com/api/v6/tickets",
+            url="https://test.daktela.com/api/v6/tickets.json",
             json={"result": {"data": [{"name": "Test"}], "total": 1}},
         )
 
@@ -68,12 +68,15 @@ class TestDaktelaClient:
         url_str = unquote(str(request.url))
         assert "fields[0]=name" in url_str
         assert "fields[1]=title" in url_str
+        assert "filter[logic]=and" in url_str
+        assert "filter[filters][0][field]=stage" in url_str
+        assert "sort[0][field]=created" in url_str
         assert "take=50" in url_str
 
     def test_get_single(self, client: DaktelaClient, httpx_mock: HTTPXMock) -> None:
         """Test GET request for single resource."""
         httpx_mock.add_response(
-            url="https://test.daktela.com/api/v6/tickets/123",
+            url="https://test.daktela.com/api/v6/tickets/123.json",
             json={"result": {"data": {"name": "Test Ticket", "title": "123"}}},
         )
 
@@ -167,12 +170,13 @@ class TestDaktelaClient:
         with DaktelaClient(config) as client:
             response = client.get("tickets")
             assert response.is_success
+            assert client.config is config
 
     def test_ping_success(self, client: DaktelaClient, httpx_mock: HTTPXMock) -> None:
         """Test successful ping."""
         httpx_mock.add_response(
-            url="https://test.daktela.com/api/v6/ping",
-            json={"result": "pong"},
+            url="https://test.daktela.com/api/v6/whoim.json",
+            json={"result": {"data": {"name": "test-user"}}},
         )
 
         assert client.ping() is True
@@ -182,7 +186,7 @@ class TestDaktelaClient:
         # Use client with retries disabled to avoid multiple requests
         client = DaktelaClient(config, retry_config=RetryConfig.disabled())
         httpx_mock.add_response(
-            url="https://test.daktela.com/api/v6/ping",
+            url="https://test.daktela.com/api/v6/whoim.json",
             status_code=500,
         )
 
@@ -191,8 +195,8 @@ class TestDaktelaClient:
     def test_health_check(self, client: DaktelaClient, httpx_mock: HTTPXMock) -> None:
         """Test health check."""
         httpx_mock.add_response(
-            url="https://test.daktela.com/api/v6/ping",
-            json={"result": "pong"},
+            url="https://test.daktela.com/api/v6/whoim.json",
+            json={"result": {"data": {"name": "test-user"}}},
         )
 
         result = client.health_check()
@@ -200,3 +204,77 @@ class TestDaktelaClient:
         assert result["healthy"] is True
         assert "latency_ms" in result
         assert result["status_code"] == 200
+
+    def test_query_parameters_on_write_requests(
+        self, client: DaktelaClient, httpx_mock: HTTPXMock
+    ) -> None:
+        httpx_mock.add_response(method="POST", json={"result": {"data": {"id": 1}}})
+
+        client.post("Users", {"name": "Alice"}, {"trace": "yes"})
+
+        request = httpx_mock.get_request()
+        assert request is not None
+        assert request.url.path == "/api/v6/users.json"
+        assert request.url.params["trace"] == "yes"
+
+    def test_structured_query_overrides_raw_parameters(
+        self, client: DaktelaClient, httpx_mock: HTTPXMock
+    ) -> None:
+        httpx_mock.add_response(json={"result": {"data": []}})
+
+        client.get("users", DaktelaQuery().take(5), {"take": 999, "custom": "value"})
+
+        request = httpx_mock.get_request()
+        assert request is not None
+        assert request.url.params["take"] == "5"
+        assert request.url.params["custom"] == "value"
+
+    def test_get_one_encodes_identifier(
+        self, client: DaktelaClient, httpx_mock: HTTPXMock
+    ) -> None:
+        httpx_mock.add_response(json={"result": {"data": {"name": "alice/bob"}}})
+
+        response = client.get_one("Users", "alice/bob")
+
+        request = httpx_mock.get_request()
+        assert request is not None
+        assert request.url.raw_path.split(b"?")[0] == b"/api/v6/users/alice%2Fbob.json"
+        assert response.get("name") == "alice/bob"
+
+    def test_get_relation(self, client: DaktelaClient, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(json={"result": {"data": [{"name": "support"}]}})
+
+        response = client.get_relation("Users", "alice", "Groups")
+
+        request = httpx_mock.get_request()
+        assert request is not None
+        assert request.url.path == "/api/v6/users/alice/groups.json"
+        assert len(response) == 1
+
+    @pytest.mark.parametrize(
+        ("method", "args", "message"),
+        [
+            ("get_one", ("users", ""), "object_name"),
+            ("get_relation", ("users", "", "groups"), "object_name"),
+            ("get_relation", ("users", "alice", "/"), "relation"),
+        ],
+    )
+    def test_object_helpers_reject_empty_names(
+        self,
+        client: DaktelaClient,
+        method: str,
+        args: tuple[str, ...],
+        message: str,
+    ) -> None:
+        with pytest.raises(ValueError, match=message):
+            getattr(client, method)(*args)
+
+    def test_get_all(self, client: DaktelaClient, httpx_mock: HTTPXMock) -> None:
+        httpx_mock.add_response(
+            json={"result": {"data": [{"id": 1}, {"id": 2}], "total": 3}}
+        )
+        httpx_mock.add_response(json={"result": {"data": [{"id": 3}], "total": 3}})
+
+        records = client.get_all("Users", page_size=2)
+
+        assert [record["id"] for record in records] == [1, 2, 3]

@@ -16,6 +16,12 @@ class DaktelaPagination:
     take: Optional[int] = None
     skip: Optional[int] = None
 
+    def __post_init__(self) -> None:
+        if self.take is not None and self.take < 0:
+            raise ValueError("take must not be negative")
+        if self.skip is not None and self.skip < 0:
+            raise ValueError("skip must not be negative")
+
     @staticmethod
     def page(page_number: int, page_size: int) -> "DaktelaPagination":
         """Create pagination for a specific page.
@@ -27,6 +33,10 @@ class DaktelaPagination:
         Returns:
             Pagination instance configured for the specified page
         """
+        if page_number < 1:
+            raise ValueError("page_number must be at least one")
+        if page_size <= 0:
+            raise ValueError("page_size must be greater than zero")
         skip = (page_number - 1) * page_size
         return DaktelaPagination(take=page_size, skip=skip)
 
@@ -41,6 +51,10 @@ class DaktelaPagination:
         Returns:
             Pagination instance
         """
+        if take < 0:
+            raise ValueError("take must not be negative")
+        if skip < 0:
+            raise ValueError("skip must not be negative")
         return DaktelaPagination(take=take, skip=skip)
 
     def next_page(self) -> "DaktelaPagination":

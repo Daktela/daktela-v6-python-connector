@@ -1,6 +1,7 @@
 """Main client for Daktela V6 REST API."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Mapping, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -80,6 +81,7 @@ class DaktelaClient:
         self,
         endpoint: str,
         query: Optional[DaktelaQuery] = None,
+        query_params: Optional[Mapping[str, Any]] = None,
     ) -> DaktelaResponse:
         """Perform a GET request.
 
@@ -93,13 +95,14 @@ class DaktelaClient:
         Raises:
             DaktelaException: On API or network errors
         """
-        params = query.to_params() if query else None
+        params = self._merge_query_params(query, query_params)
         return self._communicator.send_request("GET", endpoint, params)
 
     def post(
         self,
         endpoint: str,
         data: Dict[str, Any],
+        query_params: Optional[Mapping[str, Any]] = None,
     ) -> DaktelaResponse:
         """Perform a POST request (create).
 
@@ -113,12 +116,13 @@ class DaktelaClient:
         Raises:
             DaktelaException: On API or network errors
         """
-        return self._communicator.send_request("POST", endpoint, body=data)
+        return self._communicator.send_request("POST", endpoint, query_params, data)
 
     def put(
         self,
         endpoint: str,
         data: Dict[str, Any],
+        query_params: Optional[Mapping[str, Any]] = None,
     ) -> DaktelaResponse:
         """Perform a PUT request (update).
 
@@ -132,11 +136,12 @@ class DaktelaClient:
         Raises:
             DaktelaException: On API or network errors
         """
-        return self._communicator.send_request("PUT", endpoint, body=data)
+        return self._communicator.send_request("PUT", endpoint, query_params, data)
 
     def delete(
         self,
         endpoint: str,
+        query_params: Optional[Mapping[str, Any]] = None,
     ) -> DaktelaResponse:
         """Perform a DELETE request.
 
@@ -149,7 +154,44 @@ class DaktelaClient:
         Raises:
             DaktelaException: On API or network errors
         """
-        return self._communicator.send_request("DELETE", endpoint)
+        return self._communicator.send_request("DELETE", endpoint, query_params)
+
+    def get_one(
+        self,
+        endpoint: str,
+        object_name: str,
+        query: Optional[DaktelaQuery] = None,
+        query_params: Optional[Mapping[str, Any]] = None,
+    ) -> DaktelaResponse:
+        """Read one object, safely encoding its identifier."""
+        if not object_name:
+            raise ValueError("object_name must not be empty")
+        return self.get(
+            f"{endpoint.strip('/')}/{quote(object_name, safe='')}",
+            query,
+            query_params,
+        )
+
+    def get_relation(
+        self,
+        endpoint: str,
+        object_name: str,
+        relation: str,
+        query: Optional[DaktelaQuery] = None,
+        query_params: Optional[Mapping[str, Any]] = None,
+    ) -> DaktelaResponse:
+        """Read a named relation for one object."""
+        if not object_name:
+            raise ValueError("object_name must not be empty")
+        relation = relation.strip("/")
+        if not relation:
+            raise ValueError("relation must not be empty")
+        relation = relation[0].lower() + relation[1:]
+        path = (
+            f"{endpoint.strip('/')}/{quote(object_name, safe='')}/"
+            f"{quote(relation, safe='')}"
+        )
+        return self.get(path, query, query_params)
 
     def iterate(
         self,
@@ -158,6 +200,7 @@ class DaktelaClient:
         page_size: int = 100,
         max_items: Optional[int] = None,
         stop_on_error: bool = True,
+        max_error_pages: int = 3,
     ) -> PaginatedIterator:
         """Create a memory-efficient iterator for paginating through large datasets.
 
@@ -182,7 +225,41 @@ class DaktelaClient:
             page_size=page_size,
             max_items=max_items,
             stop_on_error=stop_on_error,
+            max_error_pages=max_error_pages,
         )
+
+    def get_all(
+        self,
+        endpoint: str,
+        query: Optional[DaktelaQuery] = None,
+        page_size: int = 100,
+        max_items: Optional[int] = None,
+        stop_on_error: bool = True,
+        max_error_pages: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """Read and collect all matching objects.
+
+        Prefer :meth:`iterate` for large datasets to avoid loading all records
+        into memory.
+        """
+        return self.iterate(
+            endpoint,
+            query,
+            page_size,
+            max_items,
+            stop_on_error,
+            max_error_pages,
+        ).collect()
+
+    @staticmethod
+    def _merge_query_params(
+        query: Optional[DaktelaQuery],
+        query_params: Optional[Mapping[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        params = dict(query_params or {})
+        if query is not None:
+            params.update(query.to_params())
+        return params or None
 
     def ping(self) -> bool:
         """Check API connectivity.

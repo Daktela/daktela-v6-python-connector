@@ -11,7 +11,7 @@ import os
 
 import pytest
 
-from daktela import DaktelaClient, DaktelaConfig, DaktelaFilter, DaktelaQuery
+from daktela import DaktelaClient, DaktelaConfig, DaktelaQuery
 
 
 @pytest.fixture
