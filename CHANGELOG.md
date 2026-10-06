@@ -42,8 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every record
 - `repr(DaktelaConfig)` exposed the access token
 - With `AuthMethod.QUERY`, the access token appeared in `httpx` request logs
-- `get_one()` and `get_relation()` addressed the wrong object when its name ended
-  in `.json`
+- `get_one()` addressed the wrong object when its name ended in `.json`
 - Skipped error pages are now recorded in `PaginatedIterator.last_error`
 
 ## [1.1.0] - 2026-08-19

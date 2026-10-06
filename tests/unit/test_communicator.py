@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Callable, List
+from typing import Callable, Iterator, List
 from urllib.parse import parse_qs
 
 import httpx
@@ -538,3 +538,119 @@ def test_redactor_leaves_unrelated_records_untouched() -> None:
     record = logging.LogRecord("httpx", logging.INFO, __file__, 1, "plain %s", ("text",), None)
     assert _AccessTokenRedactor().filter(record)
     assert record.getMessage() == "plain text"
+
+
+@pytest.mark.parametrize(
+    ("error", "attempts"),
+    [
+        (httpx.PoolTimeout, 2),
+        (httpx.WriteTimeout, 1),
+        (httpx.RemoteProtocolError, 1),
+    ],
+)
+def test_post_resend_depends_on_whether_request_was_sent(
+    monkeypatch: pytest.MonkeyPatch,
+    error: type[httpx.RequestError],
+    attempts: int,
+) -> None:
+    monkeypatch.setattr("daktela.http.communicator.time.sleep", lambda delay: None)
+
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise error("failure", request=request)
+
+    calls, handler = count_calls(fail)
+    communicator, client = make_communicator(
+        handler, retry_config=RetryConfig(max_retries=1, initial_delay=0)
+    )
+    with pytest.raises(DaktelaException):
+        communicator.send_request("POST", "tickets", body={})
+    assert len(calls) == attempts
+    client.close()
+
+
+def test_redactor_tolerates_malformed_records() -> None:
+    record = logging.LogRecord("httpx", logging.INFO, __file__, 1, "%s %s", ("one",), None)
+    assert _AccessTokenRedactor().filter(record)
+
+
+@pytest.fixture
+def clean_httpx_filters() -> Iterator[logging.Logger]:
+    logger = logging.getLogger("httpx")
+    saved = list(logger.filters)
+    for filter_ in saved:
+        logger.removeFilter(filter_)
+    yield logger
+    for filter_ in list(logger.filters):
+        logger.removeFilter(filter_)
+    for filter_ in saved:
+        logger.addFilter(filter_)
+
+
+@pytest.mark.parametrize("auth_method", [AuthMethod.HEADER, AuthMethod.COOKIE])
+def test_redactor_is_only_installed_for_query_auth(
+    clean_httpx_filters: logging.Logger, auth_method: AuthMethod
+) -> None:
+    _, client = make_communicator(ok_response, auth_method=auth_method)
+    assert not any(isinstance(f, _AccessTokenRedactor) for f in clean_httpx_filters.filters)
+    client.close()
+
+
+def test_redactor_masks_token_in_any_query_position() -> None:
+    record = logging.LogRecord(
+        "httpx",
+        logging.INFO,
+        __file__,
+        1,
+        "HTTP Request: %s %s",
+        ("GET", "https://x/api/v6/users.json?take=1&accessToken=a%26b%3Dc&skip=2"),
+        None,
+    )
+    assert _AccessTokenRedactor().filter(record)
+    assert record.getMessage() == (
+        "HTTP Request: GET https://x/api/v6/users.json?take=1&accessToken=***&skip=2"
+    )
+
+
+@pytest.mark.parametrize("method", ["PATCH", "post"])
+def test_other_write_spellings_raise_on_body_errors(method: str) -> None:
+    communicator, client = make_communicator(
+        lambda request: httpx.Response(200, json={"error": ["failure"]}),
+    )
+    with pytest.raises(DaktelaValidationException):
+        communicator.send_request(method, "tickets", body={})
+    client.close()
+
+
+def test_successful_write_without_body_errors_returns() -> None:
+    communicator, client = make_communicator(
+        lambda request: httpx.Response(201, json={"error": [], "result": {"data": {"id": 1}}}),
+    )
+    assert communicator.send_request("POST", "tickets", body={}).get("id") == 1
+    client.close()
+
+
+@pytest.mark.parametrize(
+    ("error", "retry_config", "exception"),
+    [
+        (
+            httpx.ConnectError,
+            RetryConfig(retry_on_connection_error=False),
+            DaktelaConnectionException,
+        ),
+        (httpx.ConnectTimeout, RetryConfig(retry_on_timeout=False), DaktelaTimeoutException),
+    ],
+)
+def test_retry_flags_take_precedence_for_unsent_post(
+    error: type[httpx.RequestError],
+    retry_config: RetryConfig,
+    exception: type[DaktelaException],
+) -> None:
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise error("failure", request=request)
+
+    calls, handler = count_calls(fail)
+    communicator, client = make_communicator(handler, retry_config=retry_config)
+    with pytest.raises(exception):
+        communicator.send_request("POST", "tickets", body={})
+    assert calls == ["POST"]
+    client.close()

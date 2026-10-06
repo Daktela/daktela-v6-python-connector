@@ -97,3 +97,12 @@ def test_retry_methods_are_case_insensitive() -> None:
     assert config.allows_method("get")
     assert not config.allows_method("DELETE")
     assert not RetryConfig().allows_method("POST")
+
+
+def test_retry_methods_reject_a_bare_string() -> None:
+    with pytest.raises(TypeError, match="not a string"):
+        RetryConfig(retry_on_methods="POST")
+
+
+def test_patch_is_not_retried_by_default() -> None:
+    assert not RetryConfig().allows_method("PATCH")

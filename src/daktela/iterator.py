@@ -118,7 +118,11 @@ class PaginatedIterator:
         return DaktelaException(message, response.status_code, errors)
 
     def _skip_failed_page(self, exc: DaktelaException, take: int) -> None:
-        """Record a failed page, then raise or move past it."""
+        """Record a failed page, then raise or move past it.
+
+        When stopping on errors the offset is kept, so calling ``next()`` again
+        retries the same page.
+        """
         self._last_error = exc
         if self._stop_on_error:
             raise exc

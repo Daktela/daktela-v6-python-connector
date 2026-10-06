@@ -39,7 +39,11 @@ class _AccessTokenRedactor(logging.Filter):
     """Mask ``accessToken`` query values in httpx request log lines."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        message = record.getMessage()
+        try:
+            message = record.getMessage()
+        except Exception:
+            # Leave malformed records for logging's own error handling.
+            return True
         redacted = _ACCESS_TOKEN_PATTERN.sub(r"\1***", message)
         if redacted != message:
             record.msg = redacted

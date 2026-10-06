@@ -201,7 +201,9 @@ a `DaktelaException`. `pages()` yields an error page before raising it. Set
 reaching it raises the last error instead of silently ending iteration.
 
 Pagination advances by the number of records actually returned, so a server
-that caps the page size below `page_size` does not truncate iteration.
+that caps the page size below `page_size` does not truncate iteration when it
+reports a `total`. Without a total, a short page ends iteration, so keep
+`page_size` within the server's limit.
 Pagination is offset-based: sort on a stable field, for example
 `DaktelaSort.asc("name")`, so that records created or edited during iteration
 are not skipped or returned twice. A single iterator supports either item

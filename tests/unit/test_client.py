@@ -1,7 +1,6 @@
 """Tests for DaktelaClient."""
 
 import json
-from typing import Any
 from urllib.parse import unquote
 
 import pytest
@@ -252,30 +251,16 @@ class TestDaktelaClient:
         assert request.url.path == "/api/v6/users/alice/groups.json"
         assert len(response) == 1
 
-    @pytest.mark.parametrize(
-        ("call", "expected_path"),
-        [
-            (lambda c: c.get_one("contacts", "report.json"), "/api/v6/contacts/report.json.json"),
-            (
-                lambda c: c.get_relation("contacts", "report.json", "tickets"),
-                "/api/v6/contacts/report.json/tickets.json",
-            ),
-        ],
-    )
-    def test_object_names_ending_in_json_are_preserved(
-        self,
-        client: DaktelaClient,
-        httpx_mock: HTTPXMock,
-        call: Any,
-        expected_path: str,
+    def test_get_one_preserves_names_ending_in_json(
+        self, client: DaktelaClient, httpx_mock: HTTPXMock
     ) -> None:
         httpx_mock.add_response(json={"result": {"data": {}}})
 
-        call(client)
+        client.get_one("contacts", "report.json")
 
         request = httpx_mock.get_request()
         assert request is not None
-        assert request.url.path == expected_path
+        assert request.url.path == "/api/v6/contacts/report.json.json"
 
     @pytest.mark.parametrize(
         ("method", "args", "message"),

@@ -46,6 +46,8 @@ class RetryConfig:
             raise ValueError("exponential_base must be at least one")
         if self.jitter < 0:
             raise ValueError("jitter must not be negative")
+        if isinstance(self.retry_on_methods, str):
+            raise TypeError("retry_on_methods must be a sequence of method names, not a string")
         object.__setattr__(
             self,
             "retry_on_methods",

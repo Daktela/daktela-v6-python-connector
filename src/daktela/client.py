@@ -191,7 +191,7 @@ class DaktelaClient:
         relation = relation[0].lower() + relation[1:]
         path = (
             f"{endpoint.strip('/')}/{quote(object_name, safe='')}/"
-            f"{quote(relation, safe='')}.json"
+            f"{quote(relation, safe='')}"
         )
         return self.get(path, query, query_params)
 
@@ -221,7 +221,9 @@ class DaktelaClient:
         Note:
             Pagination is offset-based. Add a sort on a stable field (for
             example ``DaktelaSort.asc("name")``) so records created or edited
-            during iteration are not skipped or returned twice.
+            during iteration are not skipped or returned twice. If the server
+            caps the page size and reports no total, iteration ends after the
+            first short page, so keep ``page_size`` within the server limit.
 
         Example:
             >>> for ticket in client.iterate("tickets", query):
