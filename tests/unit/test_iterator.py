@@ -383,3 +383,19 @@ def test_full_pages_without_total_continue_until_short_page() -> None:
     iterator = PaginatedIterator(client, "users", page_size=50)  # type: ignore[arg-type]
     assert len(iterator.collect()) == 120
     assert [skip for skip, _ in client.calls] == [0, 50, 100]
+
+
+def test_next_after_stop_on_error_retries_the_same_page() -> None:
+    client = FakeClient(
+        [
+            response([{"id": 1}], total=3),
+            DaktelaException("failure", 500),
+            response([{"id": 2}, {"id": 3}], total=3),
+        ]
+    )
+    iterator = PaginatedIterator(client, "users", page_size=1)  # type: ignore[arg-type]
+    assert next(iterator) == {"id": 1}
+    with pytest.raises(DaktelaException):
+        next(iterator)
+    assert next(iterator) == {"id": 2}
+    assert [skip for _, skip, _ in client.calls] == [0, 1, 1]

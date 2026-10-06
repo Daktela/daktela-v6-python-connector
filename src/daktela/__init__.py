@@ -46,7 +46,7 @@ from .query import DaktelaFilter, DaktelaPagination, DaktelaQuery, DaktelaSort
 from .response import DaktelaResponse
 from .utils import normalize_phone_number
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 __all__ = [
     # Main client

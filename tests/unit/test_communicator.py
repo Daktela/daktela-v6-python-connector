@@ -83,7 +83,7 @@ def test_builds_canonical_header_authenticated_request() -> None:
     assert request.headers["X-AUTH-TOKEN"] == "secret-token"
     assert request.headers["Accept"] == "application/json"
     assert request.headers["Content-Type"] == "application/json"
-    assert request.headers["User-Agent"] == "DaktelaPythonSDK/1.1"
+    assert request.headers["User-Agent"] == "DaktelaPythonSDK/1.2"
     assert query["filter[logic]"] == ["and"]
     assert query["filter[filters][0][value]"] == ["true"]
     assert query["fields[0]"] == ["name"]

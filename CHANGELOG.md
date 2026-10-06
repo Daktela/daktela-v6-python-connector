@@ -7,39 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-06
+
+Fixes duplicate records from retried POST requests, silent truncation during
+iteration, and access-token leaks.
+
+### Behaviour changes
+
+Existing callers should check these before upgrading:
+
+- `POST` is no longer resent after a 5xx response, a timeout, or a dropped
+  connection, because the server may already have created the record. It is
+  still retried after HTTP 429 and when the connection never opened. To opt
+  back in, pass
+  `RetryConfig(retry_on_methods=("GET", "HEAD", "OPTIONS", "PUT", "DELETE", "POST"))`.
+- `POST`, `PUT`, `PATCH`, and `DELETE` responses that report errors in the body
+  raise `DaktelaValidationException`, even when the HTTP status is 2xx.
+  Previously they returned normally with the errors in `response.errors`.
+- With `stop_on_error=True` (the default), a page whose response reports errors
+  raises `DaktelaException` instead of silently ending iteration. `pages()`
+  yields that page before raising.
+- With `stop_on_error=False`, reaching `max_error_pages` consecutive error
+  responses raises the last error instead of silently ending iteration.
+- `DaktelaFilter.in_()` and `not_in()` raise `ValueError` for an empty list.
+  Previously the filter was sent without a value, which could match every
+  record.
+- A `PaginatedIterator` supports either item iteration or `pages()`. Mixing
+  them raises `RuntimeError`.
+- `RetryConfig(retry_on_methods=...)` raises `TypeError` for a bare string such
+  as `"POST"`. Pass a tuple, for example `("POST",)`.
+
 ### Added
 
-- `DaktelaForbiddenException` for HTTP 403 responses
+- `DaktelaForbiddenException` for HTTP 403 responses (subclass of
+  `DaktelaException`, which 403 previously raised)
 - `RetryConfig.retry_on_methods` to choose which HTTP methods may be resent
 
 ### Changed
 
-- `POST` is no longer retried after a 5xx, a timeout, or a dropped connection,
-  because the server may already have created the record. Rate-limited (429)
-  requests and connections that never opened are still retried. Pass
-  `RetryConfig(retry_on_methods=(..., "POST"))` to opt back in
-- `POST`, `PUT`, and `DELETE` responses that report errors in the body now raise
-  `DaktelaValidationException` even when the HTTP status is 2xx
-- Iteration raises when a page's response reports errors and `stop_on_error`
-  is true (the default), instead of silently ending. `pages()` yields the page
-  first
-- Reaching `max_error_pages` raises the last error for error responses too,
-  instead of silently ending iteration
-- A `PaginatedIterator` now supports either item iteration or `pages()`; mixing
-  them raises `RuntimeError`
-- `DaktelaFilter.in_()` and `not_in()` reject an empty list with `ValueError`
+- The default User-Agent is `DaktelaPythonSDK/1.2`
 - The publish workflow runs tests on every supported Python version, adds type
-  checking and linting, and verifies that the release tag matches the package
-  version
+  checking and linting, verifies that the release tag matches the package
+  version, and limits the workflow token to read access
 
 ### Fixed
 
-- POST requests could be sent up to four times after a server error or a timeout,
-  which could create duplicate records
+- POST requests could be sent up to four times after a server error or a
+  timeout, which could create duplicate records
 - Iteration stopped after the first page when the server returned fewer records
-  than `page_size`; it now advances by the records actually received
-- An empty `in_()` list was sent as a filter without a value, which could match
-  every record
+  than `page_size`. It now advances by the number of records received and uses
+  the reported `total` to decide when to stop
 - `repr(DaktelaConfig)` exposed the access token
 - With `AuthMethod.QUERY`, the access token appeared in `httpx` request logs
 - `get_one()` addressed the wrong object when its name ended in `.json`

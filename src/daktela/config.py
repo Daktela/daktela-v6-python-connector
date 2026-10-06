@@ -54,7 +54,7 @@ class DaktelaConfig:
         access_token: API access token for authentication
         auth_method: Authentication method to use (default: HEADER)
         timeout: Request timeout in seconds (default: 30.0)
-        user_agent: Custom User-Agent header (default: DaktelaPythonSDK/1.1)
+        user_agent: Custom User-Agent header (default: DaktelaPythonSDK/1.2)
         verify_ssl: Whether to verify SSL certificates (default: True)
         logger: Custom logger instance (default: None)
     """
@@ -63,7 +63,7 @@ class DaktelaConfig:
     access_token: str = field(repr=False)
     auth_method: AuthMethod = AuthMethod.HEADER
     timeout: float = 30.0
-    user_agent: str = "DaktelaPythonSDK/1.1"
+    user_agent: str = "DaktelaPythonSDK/1.2"
     verify_ssl: bool = True
     logger: Optional[logging.Logger] = field(default=None, compare=False)
     _scheme: str = field(default="https", init=False, repr=False, compare=False)
