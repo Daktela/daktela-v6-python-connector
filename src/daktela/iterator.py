@@ -39,9 +39,8 @@ class PaginatedIterator:
         self._max_items = max_items
         self._stop_on_error = stop_on_error
         self._max_error_pages = max_error_pages
-        self._initial_offset = self._base_query.get_skip() or 0
 
-        self._next_offset = self._initial_offset
+        self._next_offset = self._base_query.get_skip() or 0
         self._items_yielded = 0
         self._current_items: List[Dict[str, Any]] = []
         self._current_index = 0
@@ -50,6 +49,7 @@ class PaginatedIterator:
         self._last_response: Optional[DaktelaResponse] = None
         self._last_error: Optional[DaktelaException] = None
         self._consecutive_errors = 0
+        self._mode: Optional[str] = None
 
     @property
     def total(self) -> Optional[int]:
@@ -58,17 +58,17 @@ class PaginatedIterator:
 
     @property
     def items_yielded(self) -> int:
-        """Return the number of records yielded by item iteration."""
+        """Return the number of records yielded, as items or within pages."""
         return self._items_yielded
 
     @property
     def last_response(self) -> Optional[DaktelaResponse]:
-        """Return the most recent successful HTTP response."""
+        """Return the most recent HTTP response."""
         return self._last_response
 
     @property
     def last_error(self) -> Optional[DaktelaException]:
-        """Return the most recent skipped request exception."""
+        """Return the most recent failed-page exception."""
         return self._last_error
 
     def __iter__(self) -> "PaginatedIterator":
@@ -88,111 +88,113 @@ class PaginatedIterator:
         self._items_yielded += 1
         return item
 
-    def _remaining_page_size(self, items_yielded: int) -> int:
+    def _claim_mode(self, mode: str) -> None:
+        # Both modes advance the same offset, so interleaving them would skip
+        # or repeat records.
+        if self._mode is None:
+            self._mode = mode
+        elif self._mode != mode:
+            raise RuntimeError(
+                "an iterator cannot mix item iteration with pages(); create a new iterator"
+            )
+
+    def _remaining_page_size(self) -> int:
         if self._max_items is None:
             return self._page_size
-        return min(self._page_size, self._max_items - items_yielded)
+        return min(self._page_size, self._max_items - self._items_yielded)
 
     def _request_page(self, offset: int, take: int) -> DaktelaResponse:
         query = self._base_query.copy().take(take).skip(offset)
-        return self._client.get(self._endpoint, query)
+        response = self._client.get(self._endpoint, query)
+        self._last_response = response
+        if response.total is not None:
+            self._total = response.total
+        return response
+
+    @staticmethod
+    def _page_error(response: DaktelaResponse) -> DaktelaException:
+        errors = response.errors
+        message = str(errors[0]) if len(errors) == 1 else str(errors)
+        return DaktelaException(message, response.status_code, errors)
+
+    def _skip_failed_page(self, exc: DaktelaException, take: int) -> None:
+        """Record a failed page, then raise or move past it."""
+        self._last_error = exc
+        if self._stop_on_error:
+            raise exc
+        self._consecutive_errors += 1
+        self._next_offset += take
+        if self._consecutive_errors >= self._max_error_pages:
+            self._exhausted = True
+            raise exc
+
+    def _advance(self, offset: int, take: int, items: List[Dict[str, Any]]) -> None:
+        self._consecutive_errors = 0
+        # Advance by what was returned: servers may cap the page size below take.
+        self._next_offset = offset + len(items)
+
+        if not items:
+            self._exhausted = True
+        elif self._total is not None:
+            self._exhausted = self._next_offset >= self._total
+        elif len(items) < take:
+            self._exhausted = True
+
+        if (
+            self._max_items is not None
+            and self._items_yielded + len(items) >= self._max_items
+        ):
+            self._exhausted = True
 
     def _load_next_items(self) -> None:
+        self._claim_mode("items")
         self._current_items = []
         self._current_index = 0
 
         while not self._exhausted:
-            take = self._remaining_page_size(self._items_yielded)
+            take = self._remaining_page_size()
             offset = self._next_offset
-
             try:
                 response = self._request_page(offset, take)
             except DaktelaException as exc:
-                self._last_error = exc
-                if self._stop_on_error:
-                    raise
-                self._consecutive_errors += 1
-                self._next_offset += take
-                if self._consecutive_errors >= self._max_error_pages:
-                    self._exhausted = True
-                    raise
+                self._skip_failed_page(exc, take)
                 continue
-
-            self._last_response = response
-            if response.total is not None:
-                self._total = response.total
 
             if response.has_errors:
-                if self._stop_on_error:
-                    self._exhausted = True
-                    return
-                self._consecutive_errors += 1
-                self._next_offset += take
-                if self._consecutive_errors >= self._max_error_pages:
-                    self._exhausted = True
-                    return
+                self._skip_failed_page(self._page_error(response), take)
                 continue
 
-            self._consecutive_errors = 0
             items = response.as_list()
+            self._advance(offset, take, items)
             self._current_items = items
-            self._next_offset += take
-
-            if not items:
-                self._exhausted = True
-            elif len(items) < take:
-                self._exhausted = True
-            elif self._total is not None and offset + len(items) >= self._total:
-                self._exhausted = True
-            elif (
-                self._max_items is not None
-                and self._items_yielded + len(items) >= self._max_items
-            ):
-                self._exhausted = True
             return
 
     def pages(self) -> Iterator[DaktelaResponse]:
-        """Yield page responses, including response metadata and API errors."""
-        offset = self._initial_offset
-        item_count = 0
-        consecutive_errors = 0
+        """Yield page responses, including response metadata.
 
-        while self._max_items is None or item_count < self._max_items:
-            take = self._remaining_page_size(item_count)
+        A page whose response reports errors is yielded before it is raised
+        (or skipped when ``stop_on_error`` is false).
+        """
+        self._claim_mode("pages")
+
+        while not self._exhausted:
+            take = self._remaining_page_size()
+            offset = self._next_offset
             try:
                 response = self._request_page(offset, take)
             except DaktelaException as exc:
-                self._last_error = exc
-                if self._stop_on_error:
-                    raise
-                consecutive_errors += 1
-                offset += take
-                if consecutive_errors >= self._max_error_pages:
-                    raise
+                self._skip_failed_page(exc, take)
                 continue
 
-            self._last_response = response
-            if response.total is not None:
-                self._total = response.total
             yield response
 
             if response.has_errors:
-                if self._stop_on_error:
-                    return
-                consecutive_errors += 1
-                offset += take
-                if consecutive_errors >= self._max_error_pages:
-                    return
+                self._skip_failed_page(self._page_error(response), take)
                 continue
 
-            consecutive_errors = 0
             items = response.as_list()
-            item_count += len(items)
-            if not items or len(items) < take:
-                return
-            if self._total is not None and offset + len(items) >= self._total:
-                return
-            offset += take
+            self._advance(offset, take, items)
+            self._items_yielded += len(items)
 
     def collect(self) -> List[Dict[str, Any]]:
         """Collect all remaining records into a list."""

@@ -1,6 +1,7 @@
 """HTTP transport layer for Daktela API communication."""
 
 import logging
+import re
 import time
 from http.cookies import SimpleCookie
 from typing import Any, Dict, List, Mapping, Optional, Tuple
@@ -13,6 +14,7 @@ from ..config import DaktelaConfig
 from ..exceptions import (
     DaktelaConnectionException,
     DaktelaException,
+    DaktelaForbiddenException,
     DaktelaNotFoundException,
     DaktelaProtocolException,
     DaktelaRateLimitException,
@@ -23,6 +25,32 @@ from ..exceptions import (
 from ..response import DaktelaResponse
 from .rate_limit import RateLimitConfig
 from .retry import RetryConfig
+
+_ACCESS_TOKEN_PATTERN = re.compile(r"(accessToken=)[^&\s\"']+")
+
+# Failures raised before any request bytes reach the server, so resending is
+# safe even for non-idempotent methods.
+_UNSENT_REQUEST_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+
+_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+class _AccessTokenRedactor(logging.Filter):
+    """Mask ``accessToken`` query values in httpx request log lines."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        redacted = _ACCESS_TOKEN_PATTERN.sub(r"\1***", message)
+        if redacted != message:
+            record.msg = redacted
+            record.args = None
+        return True
+
+
+def _install_access_token_redactor() -> None:
+    logger = logging.getLogger("httpx")
+    if not any(isinstance(filter_, _AccessTokenRedactor) for filter_ in logger.filters):
+        logger.addFilter(_AccessTokenRedactor())
 
 
 class ApiCommunicator:
@@ -44,6 +72,8 @@ class ApiCommunicator:
             verify=config.verify_ssl,
         )
         self._logger = config.logger
+        if config.auth_method == AuthMethod.QUERY:
+            _install_access_token_redactor()
 
     def close(self) -> None:
         """Close the HTTP client when it was created by this communicator."""
@@ -65,8 +95,10 @@ class ApiCommunicator:
     ) -> DaktelaResponse:
         """Send a request and return its parsed response.
 
-        Transient HTTP and network failures use :class:`RetryConfig`. Rate
-        limits use their own independently bounded :class:`RateLimitConfig`.
+        Transient HTTP and network failures use :class:`RetryConfig`. Failures
+        after the request may have reached the server are only retried for
+        methods in ``RetryConfig.retry_on_methods``. Rate limits use their own
+        independently bounded :class:`RateLimitConfig`.
         """
         url = self._build_url(endpoint, query_params)
         headers = self._build_headers()
@@ -84,7 +116,7 @@ class ApiCommunicator:
                     attempt=retry_attempt + rate_limit_attempt + 1,
                 )
                 response = self._execute_request(method, url, headers, body)
-                result = self._handle_response(response)
+                result = self._handle_response(response, method)
                 self._log(
                     "debug",
                     "API response received",
@@ -113,6 +145,7 @@ class ApiCommunicator:
             except DaktelaException as exc:
                 if (
                     exc.status_code is not None
+                    and self._retry_config.allows_method(method)
                     and self._retry_config.should_retry(exc.status_code, retry_attempt)
                 ):
                     retry_attempt += 1
@@ -123,6 +156,7 @@ class ApiCommunicator:
             except httpx.TimeoutException as exc:
                 if (
                     self._retry_config.retry_on_timeout
+                    and self._may_resend(method, exc)
                     and retry_attempt < self._retry_config.max_retries
                 ):
                     retry_attempt += 1
@@ -133,12 +167,18 @@ class ApiCommunicator:
             except httpx.RequestError as exc:
                 if (
                     self._retry_config.retry_on_connection_error
+                    and self._may_resend(method, exc)
                     and retry_attempt < self._retry_config.max_retries
                 ):
                     retry_attempt += 1
                     self._wait_before_retry(retry_attempt, None)
                     continue
                 raise DaktelaConnectionException(f"Request failed: {exc}") from exc
+
+    def _may_resend(self, method: str, exc: httpx.RequestError) -> bool:
+        return isinstance(exc, _UNSENT_REQUEST_ERRORS) or self._retry_config.allows_method(
+            method
+        )
 
     def _wait_before_retry(self, attempt: int, status_code: Optional[int]) -> None:
         delay = self._retry_config.get_delay(attempt - 1)
@@ -241,7 +281,7 @@ class ApiCommunicator:
             headers["Cookie"] = cookie.output(header="").strip()
         return headers
 
-    def _handle_response(self, response: httpx.Response) -> DaktelaResponse:
+    def _handle_response(self, response: httpx.Response, method: str) -> DaktelaResponse:
         status_code = response.status_code
         data: Any = None
         total: Optional[int] = None
@@ -265,6 +305,9 @@ class ApiCommunicator:
             data, total, errors = self._parse_response_body(json_data)
 
         self._raise_for_status(status_code, errors, response)
+        if errors and method in _WRITE_METHODS:
+            # A write that reports errors did not succeed, whatever the status.
+            raise DaktelaValidationException(self._error_message(errors), status_code, errors)
         return DaktelaResponse(
             status_code=status_code,
             data=data,
@@ -318,12 +361,14 @@ class ApiCommunicator:
         if status_code < 400:
             return
 
-        message = str(errors[0]) if len(errors) == 1 else str(errors)
-        if not errors:
-            message = f"Request failed with status {status_code}"
+        message = (
+            self._error_message(errors) if errors else f"Request failed with status {status_code}"
+        )
 
         if status_code == 401:
             raise DaktelaUnauthorizedException(message, errors)
+        if status_code == 403:
+            raise DaktelaForbiddenException(message, errors)
         if status_code == 404:
             raise DaktelaNotFoundException(message, errors)
         if status_code == 429:
@@ -334,6 +379,10 @@ class ApiCommunicator:
         if status_code in (400, 422):
             raise DaktelaValidationException(message, status_code, errors)
         raise DaktelaException(message, status_code, errors)
+
+    @staticmethod
+    def _error_message(errors: List[Any]) -> str:
+        return str(errors[0]) if len(errors) == 1 else str(errors)
 
     def _log(self, level: str, message: str, **context: Any) -> None:
         if self._logger:

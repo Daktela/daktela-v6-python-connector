@@ -60,7 +60,7 @@ class DaktelaConfig:
     """
 
     url: str
-    access_token: str
+    access_token: str = field(repr=False)
     auth_method: AuthMethod = AuthMethod.HEADER
     timeout: float = 30.0
     user_agent: str = "DaktelaPythonSDK/1.1"

@@ -128,3 +128,9 @@ class TestDaktelaConfig:
         )
         assert config.url == "localhost:8080"
         assert config.base_url == "http://localhost:8080/api/v6"
+
+
+def test_access_token_is_hidden_from_repr() -> None:
+    config = DaktelaConfig(url="my.daktela.com", access_token="super-secret")
+    assert "super-secret" not in repr(config)
+    assert "super-secret" not in str(config)

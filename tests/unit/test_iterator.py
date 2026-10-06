@@ -142,7 +142,8 @@ def test_api_error_response_stop_and_skip() -> None:
     stopped = PaginatedIterator(
         FakeClient([response(None, errors=["failure"])]), "users"  # type: ignore[arg-type]
     )
-    assert stopped.collect() == []
+    with pytest.raises(DaktelaException, match="failure"):
+        stopped.collect()
     assert stopped.last_response is not None
 
     client = FakeClient(
@@ -171,7 +172,8 @@ def test_api_error_responses_are_bounded() -> None:
         stop_on_error=False,
         max_error_pages=2,
     )  # type: ignore[arg-type]
-    assert iterator.collect() == []
+    with pytest.raises(DaktelaException, match="failure"):
+        iterator.collect()
 
 
 def test_pages_yields_metadata_and_stops_at_total() -> None:
@@ -203,7 +205,10 @@ def test_pages_error_handling() -> None:
     stopped = PaginatedIterator(
         FakeClient([error_response]), "users"  # type: ignore[arg-type]
     )
-    assert list(stopped.pages()) == [error_response]
+    seen: list[DaktelaResponse] = []
+    with pytest.raises(DaktelaException, match="failure"):
+        seen.extend(stopped.pages())
+    assert seen == [error_response]
 
     success = response([{"id": 2}], total=2)
     skipped = PaginatedIterator(
@@ -227,7 +232,10 @@ def test_pages_api_errors_are_bounded() -> None:
         stop_on_error=False,
         max_error_pages=2,
     )  # type: ignore[arg-type]
-    assert list(iterator.pages()) == errors
+    seen: list[DaktelaResponse] = []
+    with pytest.raises(DaktelaException, match="failure"):
+        seen.extend(iterator.pages())
+    assert seen == errors
 
 
 def test_pages_request_exception_handling() -> None:
@@ -275,3 +283,103 @@ def test_collection_helpers() -> None:
 
     mapped = iterator_for({"id": 1}, {"id": 2})
     assert list(mapped.map(lambda item: item["id"] * 10)) == [10, 20]
+
+
+class SlicingClient:
+    """Serves a fixed dataset and caps page size like a real server may."""
+
+    def __init__(self, size: int, max_take: int, *, report_total: bool = True) -> None:
+        self.data = [{"id": index} for index in range(size)]
+        self.max_take = max_take
+        self.report_total = report_total
+        self.calls: list[tuple[int | None, int | None]] = []
+
+    def get(self, endpoint: str, query: DaktelaQuery) -> DaktelaResponse:
+        self.calls.append((query.get_skip(), query.get_take()))
+        skip = query.get_skip() or 0
+        take = min(query.get_take() or self.max_take, self.max_take)
+        total = len(self.data) if self.report_total else None
+        return response(self.data[skip : skip + take], total=total)
+
+
+def test_server_capped_page_size_does_not_truncate_iteration() -> None:
+    client = SlicingClient(size=250, max_take=50)
+    iterator = PaginatedIterator(client, "users", page_size=100)  # type: ignore[arg-type]
+    assert [item["id"] for item in iterator] == list(range(250))
+    assert [skip for skip, _ in client.calls] == [0, 50, 100, 150, 200]
+
+
+def test_server_capped_pages_respect_max_items() -> None:
+    client = SlicingClient(size=250, max_take=50)
+    iterator = PaginatedIterator(
+        client, "users", page_size=100, max_items=120  # type: ignore[arg-type]
+    )
+    assert len(iterator.collect()) == 120
+    assert client.calls[-1] == (100, 20)
+
+
+def test_server_capped_page_size_does_not_truncate_pages() -> None:
+    client = SlicingClient(size=120, max_take=50)
+    iterator = PaginatedIterator(client, "users", page_size=100)  # type: ignore[arg-type]
+    assert [len(page) for page in iterator.pages()] == [50, 50, 20]
+
+
+def test_short_page_without_total_still_ends_iteration() -> None:
+    client = SlicingClient(size=30, max_take=50, report_total=False)
+    iterator = PaginatedIterator(client, "users", page_size=100)  # type: ignore[arg-type]
+    assert len(iterator.collect()) == 30
+    assert len(client.calls) == 1
+
+
+def test_api_error_response_raises_when_stopping_on_error() -> None:
+    failed = DaktelaResponse(200, data=None, total=5, errors=["partial failure"])
+    iterator = PaginatedIterator(FakeClient([failed]), "users")  # type: ignore[arg-type]
+    with pytest.raises(DaktelaException, match="partial failure") as raised:
+        iterator.collect()
+    assert raised.value.errors == ["partial failure"]
+    assert raised.value.status_code == 200
+    assert iterator.last_error is raised.value
+    assert iterator.last_response is failed
+
+
+def test_pages_raise_after_yielding_api_error_response() -> None:
+    failed = response(None, errors=["failure"])
+    iterator = PaginatedIterator(FakeClient([failed]), "users")  # type: ignore[arg-type]
+    pages = iterator.pages()
+    assert next(pages) is failed
+    with pytest.raises(DaktelaException, match="failure"):
+        next(pages)
+    assert iterator.last_error is not None
+
+
+def test_skipped_api_error_response_is_recorded() -> None:
+    client = FakeClient([response(None, errors=["failure"]), response([{"id": 2}], total=2)])
+    iterator = PaginatedIterator(
+        client,
+        "users",
+        page_size=1,
+        stop_on_error=False,
+        max_error_pages=2,
+    )  # type: ignore[arg-type]
+    assert iterator.collect() == [{"id": 2}]
+    assert iterator.last_error is not None
+    assert iterator.last_error.errors == ["failure"]
+
+
+def test_mixing_items_and_pages_is_rejected() -> None:
+    items_first = iterator_for({"id": 1}, {"id": 2})
+    next(items_first)
+    with pytest.raises(RuntimeError, match="pages"):
+        next(items_first.pages())
+
+    pages_first = iterator_for({"id": 1})
+    next(pages_first.pages())
+    with pytest.raises(RuntimeError, match="pages"):
+        next(pages_first)
+
+
+def test_full_pages_without_total_continue_until_short_page() -> None:
+    client = SlicingClient(size=120, max_take=50, report_total=False)
+    iterator = PaginatedIterator(client, "users", page_size=50)  # type: ignore[arg-type]
+    assert len(iterator.collect()) == 120
+    assert [skip for skip, _ in client.calls] == [0, 50, 100]

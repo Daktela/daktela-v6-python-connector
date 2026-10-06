@@ -3,6 +3,7 @@
 from daktela import (
     DaktelaConnectionException,
     DaktelaException,
+    DaktelaForbiddenException,
     DaktelaNotFoundException,
     DaktelaProtocolException,
     DaktelaRateLimitException,
@@ -87,3 +88,11 @@ class TestDaktelaExceptions:
         assert issubclass(DaktelaTimeoutException, DaktelaException)
         assert issubclass(DaktelaValidationException, DaktelaException)
         assert issubclass(DaktelaProtocolException, DaktelaException)
+
+
+def test_forbidden_exception() -> None:
+    exc = DaktelaForbiddenException(errors=["no access"])
+    assert isinstance(exc, DaktelaException)
+    assert exc.status_code == 403
+    assert exc.errors == ["no access"]
+    assert str(exc) == "[403] Forbidden"

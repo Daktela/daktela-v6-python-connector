@@ -166,8 +166,10 @@ class DaktelaClient:
         """Read one object, safely encoding its identifier."""
         if not object_name:
             raise ValueError("object_name must not be empty")
+        # The explicit suffix keeps names that end in ".json" intact, because
+        # endpoint normalization strips exactly one trailing ".json".
         return self.get(
-            f"{endpoint.strip('/')}/{quote(object_name, safe='')}",
+            f"{endpoint.strip('/')}/{quote(object_name, safe='')}.json",
             query,
             query_params,
         )
@@ -189,7 +191,7 @@ class DaktelaClient:
         relation = relation[0].lower() + relation[1:]
         path = (
             f"{endpoint.strip('/')}/{quote(object_name, safe='')}/"
-            f"{quote(relation, safe='')}"
+            f"{quote(relation, safe='')}.json"
         )
         return self.get(path, query, query_params)
 
@@ -209,10 +211,17 @@ class DaktelaClient:
             query: Base query (will be cloned and modified for pagination)
             page_size: Number of items per page (default: 100)
             max_items: Maximum items to return (None for unlimited)
-            stop_on_error: Whether to stop iteration on first error
+            stop_on_error: Whether to raise on the first failed page instead of
+                skipping it
+            max_error_pages: Consecutive failed pages tolerated when skipping
 
         Returns:
             PaginatedIterator that yields individual items
+
+        Note:
+            Pagination is offset-based. Add a sort on a stable field (for
+            example ``DaktelaSort.asc("name")``) so records created or edited
+            during iteration are not skipped or returned twice.
 
         Example:
             >>> for ticket in client.iterate("tickets", query):

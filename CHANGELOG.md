@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `DaktelaForbiddenException` for HTTP 403 responses
+- `RetryConfig.retry_on_methods` to choose which HTTP methods may be resent
+
+### Changed
+
+- `POST` is no longer retried after a 5xx, a timeout, or a dropped connection,
+  because the server may already have created the record. Rate-limited (429)
+  requests and connections that never opened are still retried. Pass
+  `RetryConfig(retry_on_methods=(..., "POST"))` to opt back in
+- `POST`, `PUT`, and `DELETE` responses that report errors in the body now raise
+  `DaktelaValidationException` even when the HTTP status is 2xx
+- Iteration raises when a page's response reports errors and `stop_on_error`
+  is true (the default), instead of silently ending. `pages()` yields the page
+  first
+- Reaching `max_error_pages` raises the last error for error responses too,
+  instead of silently ending iteration
+- A `PaginatedIterator` now supports either item iteration or `pages()`; mixing
+  them raises `RuntimeError`
+- `DaktelaFilter.in_()` and `not_in()` reject an empty list with `ValueError`
+- The publish workflow runs tests on every supported Python version, adds type
+  checking and linting, and verifies that the release tag matches the package
+  version
+
+### Fixed
+
+- POST requests could be sent up to four times after a server error or a timeout,
+  which could create duplicate records
+- Iteration stopped after the first page when the server returned fewer records
+  than `page_size`; it now advances by the records actually received
+- An empty `in_()` list was sent as a filter without a value, which could match
+  every record
+- `repr(DaktelaConfig)` exposed the access token
+- With `AuthMethod.QUERY`, the access token appeared in `httpx` request logs
+- `get_one()` and `get_relation()` addressed the wrong object when its name ended
+  in `.json`
+- Skipped error pages are now recorded in `PaginatedIterator.last_error`
+
 ## [1.1.0] - 2026-08-19
 
 ### Changed

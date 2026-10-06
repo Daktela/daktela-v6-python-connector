@@ -1,5 +1,7 @@
 """Tests for DaktelaFilter."""
 
+from typing import Any
+
 import pytest
 
 from daktela import DaktelaFilter
@@ -124,3 +126,9 @@ def test_simple_repr() -> None:
 def test_invalid_filters(factory: object) -> None:
     with pytest.raises(ValueError):
         factory()  # type: ignore[operator]
+
+
+@pytest.mark.parametrize("factory", [DaktelaFilter.in_, DaktelaFilter.not_in])
+def test_list_filters_reject_empty_values(factory: Any) -> None:
+    with pytest.raises(ValueError, match="at least one value"):
+        factory("name", [])

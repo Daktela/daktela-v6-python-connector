@@ -116,6 +116,10 @@ DaktelaFilter.is_null("owner")
 DaktelaFilter.is_not_null("owner")
 ```
 
+`in_()` and `not_in()` raise `ValueError` for an empty list. An empty list
+cannot be sent as a filter value, and a filter without a value could match
+every record.
+
 Filters added directly to a query are combined with AND. Logical groups can be
 nested:
 
@@ -190,9 +194,18 @@ For small datasets, `get_all()` collects all pages directly:
 tickets = client.get_all("tickets", page_size=100, max_items=500)
 ```
 
-By default, request exceptions propagate and API error pages stop iteration.
-Set `stop_on_error=False` to skip failed pages. `max_error_pages` bounds
-consecutive skipped pages so a persistent failure cannot loop forever.
+By default, request exceptions and pages whose response reports errors raise
+a `DaktelaException`. `pages()` yields an error page before raising it. Set
+`stop_on_error=False` to skip failed pages (the latest one is available as
+`iterator.last_error`). `max_error_pages` bounds consecutive skipped pages;
+reaching it raises the last error instead of silently ending iteration.
+
+Pagination advances by the number of records actually returned, so a server
+that caps the page size below `page_size` does not truncate iteration.
+Pagination is offset-based: sort on a stable field, for example
+`DaktelaSort.asc("name")`, so that records created or edited during iteration
+are not skipped or returned twice. A single iterator supports either item
+iteration or `pages()`, not both.
 
 ## Authentication and client configuration
 
@@ -212,7 +225,9 @@ config = DaktelaConfig(
 Authentication modes:
 
 - `AuthMethod.HEADER` sends `X-AUTH-TOKEN` and is the recommended default.
-- `AuthMethod.QUERY` sends the `accessToken` query parameter.
+- `AuthMethod.QUERY` sends the `accessToken` query parameter. Tokens in URLs
+  can end up in proxy and server access logs, so prefer `HEADER`. The SDK masks
+  the token in the `httpx` logger's request lines.
 - `AuthMethod.COOKIE` sends the `c_user` cookie.
 
 Hostnames without a scheme default to HTTPS. Explicit HTTP URLs are preserved
@@ -233,7 +248,12 @@ The SDK does not close an injected client; its owner remains responsible for it.
 ## Retries and rate limits
 
 Transient status codes, connection failures, and timeouts use exponential
-backoff:
+backoff. Failures that occur after a request may have reached the server are
+only retried for the methods in `RetryConfig.retry_on_methods` (GET, HEAD,
+OPTIONS, PUT, DELETE by default). `POST` is not idempotent, so it is only
+retried after an HTTP 429 or when the connection could not be opened. A
+retried create could otherwise add duplicate records. Opt in with, for example,
+`RetryConfig(retry_on_methods=("GET", "PUT", "DELETE", "POST"))`.
 
 ```python
 from daktela import RateLimitConfig, RetryConfig
@@ -276,12 +296,17 @@ response.as_dict()
 response.get("name", "fallback")
 ```
 
+A `POST`, `PUT`, or `DELETE` whose response reports errors raises
+`DaktelaValidationException`, even when the HTTP status is 2xx. GET responses
+keep body errors in `response.errors`.
+
 The SDK raises specific exceptions for common failures:
 
 ```python
 from daktela import (
     DaktelaConnectionException,
     DaktelaException,
+    DaktelaForbiddenException,
     DaktelaNotFoundException,
     DaktelaProtocolException,
     DaktelaRateLimitException,
@@ -294,6 +319,8 @@ try:
     ticket = client.get_one("tickets", "missing")
 except DaktelaNotFoundException:
     print("Ticket not found")
+except DaktelaForbiddenException:
+    print("Token lacks access to tickets")
 except DaktelaRateLimitException as error:
     print("Retry after", error.retry_after)
 except DaktelaProtocolException as error:

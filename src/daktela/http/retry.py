@@ -17,6 +17,9 @@ class RetryConfig:
         max_delay: Maximum delay in seconds between retries (default: 60.0)
         exponential_base: Base for exponential backoff calculation (default: 2.0)
         retry_on_status: HTTP status codes that trigger a retry
+        retry_on_methods: HTTP methods that may be resent after the server may
+            already have processed them (default excludes POST, which is not
+            idempotent and could create duplicate records)
         retry_on_connection_error: Whether to retry connection failures
         retry_on_timeout: Whether to retry request timeouts
         jitter: Maximum random jitter added to each delay in seconds
@@ -27,6 +30,7 @@ class RetryConfig:
     max_delay: float = 60.0
     exponential_base: float = 2.0
     retry_on_status: Tuple[int, ...] = (408, 500, 502, 503, 504)
+    retry_on_methods: Tuple[str, ...] = ("GET", "HEAD", "OPTIONS", "PUT", "DELETE")
     retry_on_connection_error: bool = True
     retry_on_timeout: bool = True
     jitter: float = 0.0
@@ -42,6 +46,11 @@ class RetryConfig:
             raise ValueError("exponential_base must be at least one")
         if self.jitter < 0:
             raise ValueError("jitter must not be negative")
+        object.__setattr__(
+            self,
+            "retry_on_methods",
+            tuple(method.upper() for method in self.retry_on_methods),
+        )
 
     def get_delay(self, attempt: int) -> float:
         """Calculate delay for a given retry attempt.
@@ -72,6 +81,10 @@ class RetryConfig:
             True if the request should be retried
         """
         return status_code in self.retry_on_status and attempt < self.max_retries
+
+    def allows_method(self, method: str) -> bool:
+        """Return whether ``method`` may be resent after reaching the server."""
+        return method.upper() in self.retry_on_methods
 
     @classmethod
     def disabled(cls) -> "RetryConfig":

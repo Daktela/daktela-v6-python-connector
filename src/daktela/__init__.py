@@ -32,6 +32,7 @@ from .config import DaktelaConfig
 from .exceptions import (
     DaktelaConnectionException,
     DaktelaException,
+    DaktelaForbiddenException,
     DaktelaNotFoundException,
     DaktelaProtocolException,
     DaktelaRateLimitException,
@@ -67,6 +68,7 @@ __all__ = [
     # Exceptions
     "DaktelaException",
     "DaktelaUnauthorizedException",
+    "DaktelaForbiddenException",
     "DaktelaNotFoundException",
     "DaktelaRateLimitException",
     "DaktelaProtocolException",

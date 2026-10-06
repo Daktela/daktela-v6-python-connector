@@ -13,6 +13,7 @@ from daktela import (
     DaktelaConfig,
     DaktelaConnectionException,
     DaktelaException,
+    DaktelaForbiddenException,
     DaktelaNotFoundException,
     DaktelaProtocolException,
     DaktelaRateLimitException,
@@ -23,6 +24,7 @@ from daktela import (
     RetryConfig,
 )
 from daktela.http import ApiCommunicator
+from daktela.http.communicator import _AccessTokenRedactor
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -398,3 +400,141 @@ def test_client_ownership_and_context_manager() -> None:
     assert owned.__enter__() is owned
     owned.__exit__()
     assert owned._client.is_closed
+
+
+def count_calls(
+    outcome: Callable[[httpx.Request], httpx.Response],
+) -> tuple[list[str], Handler]:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method)
+        return outcome(request)
+
+    return calls, handler
+
+
+def raise_read_timeout(request: httpx.Request) -> httpx.Response:
+    raise httpx.ReadTimeout("slow", request=request)
+
+
+def raise_read_error(request: httpx.Request) -> httpx.Response:
+    raise httpx.ReadError("reset", request=request)
+
+
+@pytest.mark.parametrize(
+    ("outcome", "exception"),
+    [
+        (lambda request: httpx.Response(500), DaktelaException),
+        (raise_read_timeout, DaktelaTimeoutException),
+        (raise_read_error, DaktelaConnectionException),
+    ],
+)
+def test_post_is_not_retried_after_it_may_have_been_processed(
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: Callable[[httpx.Request], httpx.Response],
+    exception: type[DaktelaException],
+) -> None:
+    monkeypatch.setattr("daktela.http.communicator.time.sleep", lambda delay: None)
+    calls, handler = count_calls(outcome)
+    communicator, client = make_communicator(handler)
+    with pytest.raises(exception):
+        communicator.send_request("POST", "tickets", body={"title": "t"})
+    assert calls == ["POST"]
+    client.close()
+
+
+@pytest.mark.parametrize("method", ["GET", "PUT", "DELETE"])
+def test_idempotent_methods_are_retried(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+) -> None:
+    monkeypatch.setattr("daktela.http.communicator.time.sleep", lambda delay: None)
+    calls, handler = count_calls(lambda request: httpx.Response(500))
+    communicator, client = make_communicator(
+        handler, retry_config=RetryConfig(max_retries=2, initial_delay=0)
+    )
+    with pytest.raises(DaktelaException):
+        communicator.send_request(method, "tickets/1")
+    assert len(calls) == 3
+    client.close()
+
+
+def test_post_is_retried_when_request_was_never_sent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("daktela.http.communicator.time.sleep", lambda delay: None)
+    outcomes: list[Callable[[httpx.Request], httpx.Response]] = [
+        lambda request: (_ for _ in ()).throw(httpx.ConnectError("down", request=request)),
+        lambda request: (_ for _ in ()).throw(httpx.ConnectTimeout("slow", request=request)),
+        lambda request: httpx.Response(429, headers={"Retry-After": "0"}),
+        lambda request: httpx.Response(201, json={"result": {"data": {"name": "t"}}}),
+    ]
+    calls, handler = count_calls(lambda request: outcomes.pop(0)(request))
+    communicator, client = make_communicator(handler)
+    assert communicator.send_request("POST", "tickets", body={"title": "t"}).is_success
+    assert calls == ["POST"] * 4
+    client.close()
+
+
+def test_post_retry_can_be_opted_into() -> None:
+    calls, handler = count_calls(lambda request: httpx.Response(503))
+    communicator, client = make_communicator(
+        handler,
+        retry_config=RetryConfig(max_retries=1, initial_delay=0, retry_on_methods=("POST",)),
+    )
+    with pytest.raises(DaktelaException):
+        communicator.send_request("POST", "tickets", body={})
+    assert len(calls) == 2
+    client.close()
+
+
+def test_forbidden_status_has_dedicated_exception() -> None:
+    communicator, client = make_communicator(
+        lambda request: httpx.Response(403, json={"error": ["forbidden"]}),
+    )
+    with pytest.raises(DaktelaForbiddenException) as raised:
+        communicator.send_request("GET", "users")
+    assert raised.value.status_code == 403
+    assert raised.value.errors == ["forbidden"]
+    client.close()
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "DELETE"])
+def test_successful_write_with_body_errors_raises(method: str) -> None:
+    communicator, client = make_communicator(
+        lambda request: httpx.Response(200, json={"error": {"title": ["required"]}}),
+    )
+    with pytest.raises(DaktelaValidationException) as raised:
+        communicator.send_request(method, "tickets", body={})
+    assert raised.value.status_code == 200
+    assert raised.value.errors == [{"title": ["required"]}]
+    client.close()
+
+
+def test_successful_read_with_body_errors_is_returned() -> None:
+    communicator, client = make_communicator(
+        lambda request: httpx.Response(200, json={"error": ["partial"], "result": {"data": []}}),
+    )
+    response = communicator.send_request("GET", "tickets")
+    assert response.errors == ["partial"]
+    client.close()
+
+
+def test_query_token_is_redacted_from_httpx_logs(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="httpx")
+    communicator, client = make_communicator(ok_response, auth_method=AuthMethod.QUERY)
+    communicator.send_request("GET", "users", {"take": 1})
+    make_communicator(ok_response, auth_method=AuthMethod.QUERY)
+
+    assert "secret-token" not in caplog.text
+    assert "accessToken=***" in caplog.text
+    assert "take=1" in caplog.text
+    assert sum(isinstance(f, _AccessTokenRedactor) for f in logging.getLogger("httpx").filters) == 1
+    client.close()
+
+
+def test_redactor_leaves_unrelated_records_untouched() -> None:
+    record = logging.LogRecord("httpx", logging.INFO, __file__, 1, "plain %s", ("text",), None)
+    assert _AccessTokenRedactor().filter(record)
+    assert record.getMessage() == "plain text"

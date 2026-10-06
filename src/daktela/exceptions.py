@@ -40,6 +40,17 @@ class DaktelaUnauthorizedException(DaktelaException):
         super().__init__(message, status_code=401, errors=errors)
 
 
+class DaktelaForbiddenException(DaktelaException):
+    """Raised when the token lacks permission for a resource (HTTP 403)."""
+
+    def __init__(
+        self,
+        message: str = "Forbidden",
+        errors: Optional[List[Any]] = None,
+    ) -> None:
+        super().__init__(message, status_code=403, errors=errors)
+
+
 class DaktelaNotFoundException(DaktelaException):
     """Raised when a resource is not found (HTTP 404)."""
 
@@ -91,7 +102,11 @@ class DaktelaTimeoutException(DaktelaException):
 
 
 class DaktelaValidationException(DaktelaException):
-    """Raised when request validation fails (HTTP 400/422)."""
+    """Raised when request validation fails.
+
+    Raised for HTTP 400/422 responses, and for successful write responses whose
+    body still reports errors.
+    """
 
     def __init__(
         self,

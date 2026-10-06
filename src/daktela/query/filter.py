@@ -3,6 +3,15 @@
 from typing import Any, Dict, List, Optional, Sequence
 
 
+def _non_empty_values(name: str, values: Sequence[Any]) -> List[Any]:
+    # An empty list serializes to no value at all, which the API may treat as
+    # "no constraint" and match every record.
+    result = list(values)
+    if not result:
+        raise ValueError(f"{name}() requires at least one value")
+    return result
+
+
 class DaktelaFilter:
     """A simple filter or a nested logical filter group.
 
@@ -150,11 +159,11 @@ class DaktelaFilter:
 
     @staticmethod
     def in_(field: str, values: Sequence[Any]) -> "DaktelaFilter":
-        return DaktelaFilter(field, "in", list(values))
+        return DaktelaFilter(field, "in", _non_empty_values("in_", values))
 
     @staticmethod
     def not_in(field: str, values: Sequence[Any]) -> "DaktelaFilter":
-        return DaktelaFilter(field, "notin", list(values))
+        return DaktelaFilter(field, "notin", _non_empty_values("not_in", values))
 
     @staticmethod
     def is_null(field: str) -> "DaktelaFilter":

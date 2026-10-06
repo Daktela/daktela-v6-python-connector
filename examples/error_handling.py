@@ -5,6 +5,7 @@ from daktela import (
     DaktelaConfig,
     DaktelaConnectionException,
     DaktelaException,
+    DaktelaForbiddenException,
     DaktelaNotFoundException,
     DaktelaProtocolException,
     DaktelaRateLimitException,
@@ -37,6 +38,11 @@ def main() -> None:
         print("Check your access token")
 
     try:
+        response = client.get("users")
+    except DaktelaForbiddenException as e:
+        print(f"Access denied: {e.message}")
+
+    try:
         # This might trigger rate limiting with many requests
         for i in range(1000):
             client.get("tickets")
@@ -44,6 +50,7 @@ def main() -> None:
         print(f"Rate limited! Wait {e.retry_after} seconds before retrying")
 
     try:
+        # Also raised when a write returns 2xx but reports errors in its body
         response = client.post("tickets", {"invalid": "data"})
     except DaktelaValidationException as e:
         print(f"Validation error: {e.message}")

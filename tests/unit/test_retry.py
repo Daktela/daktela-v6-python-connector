@@ -89,3 +89,11 @@ class TestRetryConfig:
     def test_negative_attempt_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="attempt"):
             RetryConfig().get_delay(-1)
+
+
+def test_retry_methods_are_case_insensitive() -> None:
+    config = RetryConfig(retry_on_methods=("post", "Get"))
+    assert config.retry_on_methods == ("POST", "GET")
+    assert config.allows_method("get")
+    assert not config.allows_method("DELETE")
+    assert not RetryConfig().allows_method("POST")
