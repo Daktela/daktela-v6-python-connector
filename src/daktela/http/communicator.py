@@ -21,6 +21,7 @@ from ..exceptions import (
     DaktelaTimeoutException,
     DaktelaUnauthorizedException,
     DaktelaValidationException,
+    _format_errors,
 )
 from ..response import DaktelaResponse
 from .rate_limit import RateLimitConfig
@@ -41,7 +42,7 @@ class _AccessTokenRedactor(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             message = record.getMessage()
-        except Exception:
+        except (TypeError, ValueError):
             # Leave malformed records for logging's own error handling.
             return True
         redacted = _ACCESS_TOKEN_PATTERN.sub(r"\1***", message)
@@ -311,7 +312,7 @@ class ApiCommunicator:
         self._raise_for_status(status_code, errors, response)
         if errors and method in _WRITE_METHODS:
             # A write that reports errors did not succeed, whatever the status.
-            raise DaktelaValidationException(self._error_message(errors), status_code, errors)
+            raise DaktelaValidationException(_format_errors(errors), status_code, errors)
         return DaktelaResponse(
             status_code=status_code,
             data=data,
@@ -366,7 +367,7 @@ class ApiCommunicator:
             return
 
         message = (
-            self._error_message(errors) if errors else f"Request failed with status {status_code}"
+            _format_errors(errors) if errors else f"Request failed with status {status_code}"
         )
 
         if status_code == 401:
@@ -383,10 +384,6 @@ class ApiCommunicator:
         if status_code in (400, 422):
             raise DaktelaValidationException(message, status_code, errors)
         raise DaktelaException(message, status_code, errors)
-
-    @staticmethod
-    def _error_message(errors: List[Any]) -> str:
-        return str(errors[0]) if len(errors) == 1 else str(errors)
 
     def _log(self, level: str, message: str, **context: Any) -> None:
         if self._logger:

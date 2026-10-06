@@ -3,6 +3,11 @@
 from typing import Any, List, Optional
 
 
+def _format_errors(errors: List[Any]) -> str:
+    """Render API error details as an exception message."""
+    return str(errors[0]) if len(errors) == 1 else str(errors)
+
+
 class DaktelaException(Exception):
     """Base exception for all Daktela SDK errors.
 

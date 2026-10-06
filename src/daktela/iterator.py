@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional, TypeVar
 
-from .exceptions import DaktelaException
+from .exceptions import DaktelaException, _format_errors
 from .query import DaktelaQuery
 from .response import DaktelaResponse
 
@@ -113,9 +113,9 @@ class PaginatedIterator:
 
     @staticmethod
     def _page_error(response: DaktelaResponse) -> DaktelaException:
-        errors = response.errors
-        message = str(errors[0]) if len(errors) == 1 else str(errors)
-        return DaktelaException(message, response.status_code, errors)
+        return DaktelaException(
+            _format_errors(response.errors), response.status_code, response.errors
+        )
 
     def _skip_failed_page(self, exc: DaktelaException, take: int) -> None:
         """Record a failed page, then raise or move past it.
