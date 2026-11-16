@@ -25,7 +25,7 @@ def main() -> None:
     config = DaktelaConfig(
         url="my.daktela.com",
         access_token="your-access-token",
-        auth_method=AuthMethod.HEADER,  # or QUERY, COOKIE
+        auth_method=AuthMethod.HEADER,  # or BEARER, QUERY
         timeout=60.0,  # Request timeout in seconds
         user_agent="MyApp/1.0",
         verify_ssl=True,  # Set False for self-signed certs (not recommended)
@@ -81,7 +81,7 @@ def main() -> None:
         DaktelaConfig(
             url="my.daktela.com",
             access_token="token",
-            auth_method=AuthMethod.HEADER,  # Sends X-AUTH-TOKEN header
+            auth_method=AuthMethod.HEADER,  # Sends X-AUTH-TOKEN header (default)
         ),
         DaktelaConfig(
             url="my.daktela.com",
@@ -91,7 +91,7 @@ def main() -> None:
         DaktelaConfig(
             url="my.daktela.com",
             access_token="token",
-            auth_method=AuthMethod.COOKIE,  # Sends c_user cookie
+            auth_method=AuthMethod.BEARER,  # Sends Authorization: Bearer (Daktela 31.37+)
         ),
     ]
     for authentication_config in authentication_configs:

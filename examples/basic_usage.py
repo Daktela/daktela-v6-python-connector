@@ -54,16 +54,17 @@ def main() -> None:
         print(f"Created ticket: {response.get('name')}")
 
     # Update a resource
-    response = client.put(
-        "tickets/123",
+    response = client.put_one(
+        "tickets",
+        "123",
         {
             "title": "Updated Title",
-            "stage": "RESOLVED",
+            "stage": "CLOSE",
         },
     )
 
     # Delete a resource, with an optional API-specific query parameter
-    response = client.delete("tickets/123", {"audit": True})
+    response = client.delete_one("tickets", "123", {"audit": True})
 
     # Using pagination helper
     pagination = DaktelaPagination.page(page_number=2, page_size=25)
@@ -72,7 +73,7 @@ def main() -> None:
 
     # Check API health
     if client.ping():
-        print("API is healthy!")
+        print("API is reachable and accepts the token")
 
     health = client.health_check()
     print(f"API latency: {health['latency_ms']}ms")

@@ -1,6 +1,15 @@
 """Filter builder for Daktela API queries."""
 
+import warnings
 from typing import Any, Dict, List, Optional, Sequence
+
+
+def _deprecated(name: str, replacement: str) -> None:
+    warnings.warn(
+        f"DaktelaFilter.{name} is deprecated; use DaktelaFilter.{replacement}",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 def _non_empty_values(name: str, values: Sequence[Any]) -> List[Any]:
@@ -29,12 +38,15 @@ class DaktelaFilter:
         logic: Optional[str] = None,
         filters: Optional[Sequence["DaktelaFilter"]] = None,
         ignore_case: Optional[bool] = None,
+        field_type: Optional[str] = None,
     ) -> None:
         """Initialize a filter.
 
         ``or_filters`` is retained for compatibility with version 1.0. New
         code should use :meth:`or_` or :meth:`and_`.
         """
+        if field_type is not None and not field_type:
+            raise ValueError("filter field_type must not be empty")
         group_filters = list(filters) if filters is not None else or_filters
         group_logic = logic or ("or" if or_filters is not None else None)
 
@@ -57,6 +69,7 @@ class DaktelaFilter:
         self._filters = group_filters
         self._logic = group_logic
         self._ignore_case = ignore_case
+        self._field_type = field_type
 
     @property
     def field(self) -> Optional[str]:
@@ -105,9 +118,24 @@ class DaktelaFilter:
         value: Any = None,
         *,
         ignore_case: Optional[bool] = None,
+        field_type: Optional[str] = None,
     ) -> "DaktelaFilter":
-        """Create a filter using an arbitrary API operator."""
-        return DaktelaFilter(field, operator, value, ignore_case=ignore_case)
+        """Create a filter using an arbitrary API operator.
+
+        Args:
+            field: Field to filter, e.g. ``"customFields"`` or
+                ``"customFields.email"``
+            operator: API operator
+            value: Filter value
+            ignore_case: Sent as ``ignoreCase``. Current Daktela versions do
+                not interpret it; string comparisons follow the database
+                collation, which is usually case-insensitive.
+            field_type: Sent as ``type`` to limit a ``customFields`` filter to
+                custom fields of one type, such as ``"email"`` or ``"phone"``
+        """
+        return DaktelaFilter(
+            field, operator, value, ignore_case=ignore_case, field_type=field_type
+        )
 
     @staticmethod
     def eq(field: str, value: Any) -> "DaktelaFilter":
@@ -135,27 +163,79 @@ class DaktelaFilter:
 
     @staticmethod
     def like(field: str, value: Any) -> "DaktelaFilter":
+        """Match an SQL ``LIKE`` pattern, e.g. ``"%urgent%"``.
+
+        The value is used as given: ``%`` matches any text and ``_`` any single
+        character. Use :meth:`contains` to match a plain substring.
+        """
         return DaktelaFilter(field, "like", value)
 
     @staticmethod
     def not_like(field: str, value: Any) -> "DaktelaFilter":
+        """Exclude values matching an SQL ``LIKE`` pattern, e.g. ``"%spam%"``."""
         return DaktelaFilter(field, "notlike", value)
 
     @staticmethod
+    def contains(field: str, value: Any) -> "DaktelaFilter":
+        """Match values that contain ``value``."""
+        return DaktelaFilter(field, "contains", value)
+
+    @staticmethod
+    def not_contains(field: str, value: Any) -> "DaktelaFilter":
+        """Match values that do not contain ``value``."""
+        return DaktelaFilter(field, "doesnotcontain", value)
+
+    @staticmethod
+    def starts_with(field: str, value: Any) -> "DaktelaFilter":
+        """Match values that start with ``value``."""
+        return DaktelaFilter(field, "startswith", value)
+
+    @staticmethod
+    def ends_with(field: str, value: Any) -> "DaktelaFilter":
+        """Match values that end with ``value``."""
+        return DaktelaFilter(field, "endswith", value)
+
+    @staticmethod
     def begins(field: str, value: Any) -> "DaktelaFilter":
-        return DaktelaFilter(field, "begins", value)
+        """Deprecated alias of :meth:`starts_with`.
+
+        Versions before 1.3 sent the ``begins`` operator, which the Daktela API
+        rejects; this alias now sends ``startswith``.
+        """
+        _deprecated("begins()", "starts_with()")
+        return DaktelaFilter.starts_with(field, value)
 
     @staticmethod
     def not_begins(field: str, value: Any) -> "DaktelaFilter":
-        return DaktelaFilter(field, "notbegins", value)
+        """Deprecated: match values that do not start with ``value``.
+
+        The API has no such operator, so this sends ``notlike`` with the
+        pattern ``value%``; ``%`` and ``_`` in ``value`` act as wildcards. Use
+        :meth:`not_like` with an explicit pattern.
+        """
+        _deprecated("not_begins()", 'not_like() with a "value%" pattern')
+        return DaktelaFilter.not_like(field, f"{value}%")
 
     @staticmethod
     def ends(field: str, value: Any) -> "DaktelaFilter":
-        return DaktelaFilter(field, "ends", value)
+        """Deprecated alias of :meth:`ends_with`.
+
+        Versions before 1.3 sent the ``ends`` operator, which the Daktela API
+        rejects; this alias now sends ``endswith``.
+        """
+        _deprecated("ends()", "ends_with()")
+        return DaktelaFilter.ends_with(field, value)
 
     @staticmethod
     def not_ends(field: str, value: Any) -> "DaktelaFilter":
-        return DaktelaFilter(field, "notends", value)
+        """Deprecated: match values that do not end with ``value``.
+
+        The API has no such operator, so this sends ``notlike`` with the
+        pattern ``%value``; ``%`` and ``_`` in ``value`` act as wildcards. Use
+        :meth:`not_like` with an explicit pattern.
+        """
+        _deprecated("not_ends()", 'not_like() with a "%value" pattern')
+        return DaktelaFilter.not_like(field, f"%{value}")
 
     @staticmethod
     def in_(field: str, values: Sequence[Any]) -> "DaktelaFilter":
@@ -197,6 +277,8 @@ class DaktelaFilter:
             result["value"] = self._value
         if self._ignore_case is not None:
             result["ignoreCase"] = self._ignore_case
+        if self._field_type is not None:
+            result["type"] = self._field_type
         return result
 
     def __repr__(self) -> str:

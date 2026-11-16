@@ -2,6 +2,8 @@
 
 from typing import Optional
 
+_SEPARATORS = str.maketrans("", "", "-()./")
+
 
 def normalize_phone_number(
     number: Optional[str],
@@ -11,6 +13,10 @@ def normalize_phone_number(
     international_length: int = 12,
 ) -> Optional[str]:
     """Normalize a phone number to an international ``00`` or ``+`` form.
+
+    Whitespace and the separators ``-``, ``(``, ``)``, ``.`` and ``/`` are
+    removed. A number that is empty after removing them is returned as an
+    empty string.
 
     Args:
         number: Phone number to normalize, or ``None``.
@@ -26,7 +32,9 @@ def normalize_phone_number(
     if international_length <= 0:
         raise ValueError("international_length must be greater than zero")
 
-    value = "".join(number.split())
+    value = "".join(number.split()).translate(_SEPARATORS)
+    if not value:
+        return ""
     marker = "+" if plus_sign else "00"
 
     if value.startswith("+"):

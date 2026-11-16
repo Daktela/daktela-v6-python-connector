@@ -1,11 +1,40 @@
 """Exception hierarchy for Daktela SDK."""
 
-from typing import Any, List, Optional
+from typing import Any, Iterator, List, Mapping, Optional
+
+# Keys that wrap a message rather than name the field it belongs to.
+_WRAPPER_KEYS = frozenset({"error", "errors", "message", "messages"})
+
+
+def _error_messages(error: Any, prefix: str = "") -> Iterator[str]:
+    """Yield readable messages from nested API error lists and maps."""
+    if error is None:
+        return
+    if isinstance(error, Mapping):
+        for key, value in error.items():
+            name = str(key)
+            nested = prefix if name.lower() in _WRAPPER_KEYS or name.isdigit() else (
+                f"{prefix}{name}: "
+            )
+            yield from _error_messages(value, nested)
+    elif isinstance(error, (list, tuple)):
+        for item in error:
+            yield from _error_messages(item, prefix)
+    else:
+        text = str(error).strip()
+        if text:
+            yield f"{prefix}{text}"
 
 
 def _format_errors(errors: List[Any]) -> str:
-    """Render API error details as an exception message."""
-    return str(errors[0]) if len(errors) == 1 else str(errors)
+    """Render API error details as an exception message.
+
+    Nested lists and maps are flattened, so ``[{"error": "Bad request"}]``
+    becomes ``"Bad request"`` and ``{"title": ["required"]}`` becomes
+    ``"title: required"``.
+    """
+    messages = list(_error_messages(errors))
+    return "; ".join(messages) if messages else "Unknown API error"
 
 
 class DaktelaException(Exception):
@@ -124,3 +153,26 @@ class DaktelaValidationException(DaktelaException):
 
 class DaktelaProtocolException(DaktelaException):
     """Raised when an API response does not match the expected JSON protocol."""
+
+
+class DaktelaRedirectException(DaktelaException):
+    """Raised when the server answers with an HTTP redirect (3xx).
+
+    The SDK never follows redirects: a redirect would send the access token or
+    login credentials to its target, and could resend a create request. A
+    redirect usually means the configured instance URL is not the one the API
+    answers on, for example ``http://`` instead of ``https://``.
+
+    Attributes:
+        location: Value of the ``Location`` header, if the server sent one
+    """
+
+    def __init__(
+        self,
+        message: str = "Redirected",
+        status_code: int = 302,
+        location: Optional[str] = None,
+        errors: Optional[List[Any]] = None,
+    ) -> None:
+        super().__init__(message, status_code=status_code, errors=errors)
+        self.location = location

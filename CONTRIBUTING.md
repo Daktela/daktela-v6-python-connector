@@ -40,6 +40,33 @@ docker compose run --rm sdk python -m build
 docker compose run --rm sdk twine check dist/*
 ```
 
+## Live integration tests
+
+`tests/integration` runs against a real instance and skips itself unless
+`DAKTELA_URL` and `DAKTELA_ACCESS_TOKEN` are set. `DAKTELA_USERNAME` with
+`DAKTELA_PASSWORD`, and `DAKTELA_RECORDING_ACTIVITY`, enable the login and
+recording tests:
+
+```bash
+docker compose run --rm -e DAKTELA_URL -e DAKTELA_ACCESS_TOKEN sdk \
+    pytest tests/integration --no-cov -rs
+```
+
+## Dependencies
+
+`requirements-dev.txt` pins the development environment that the Docker image
+and CI install as constraints. Dependabot proposes weekly updates for it and
+for the workflow actions, which are pinned to commit SHAs. After changing the
+dev extras in `pyproject.toml`, regenerate it from the image:
+
+```bash
+docker compose build sdk
+docker compose run --rm sdk pip freeze --exclude-editable
+```
+
+Keep the comment header at the top of the file. The library itself declares
+only lower bounds; CI also tests the minimum supported httpx version.
+
 ## Pull Request Process
 
 1. Fork the repository

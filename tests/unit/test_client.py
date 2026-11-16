@@ -176,7 +176,7 @@ class TestDaktelaClient:
         """Test successful ping."""
         httpx_mock.add_response(
             url="https://test.daktela.com/api/v6/whoim.json",
-            json={"result": {"data": {"name": "test-user"}}},
+            json={"result": {"user": {"name": "test-user"}, "version": {}}},
         )
 
         assert client.ping() is True
@@ -196,7 +196,7 @@ class TestDaktelaClient:
         """Test health check."""
         httpx_mock.add_response(
             url="https://test.daktela.com/api/v6/whoim.json",
-            json={"result": {"data": {"name": "test-user"}}},
+            json={"result": {"user": {"name": "test-user"}, "version": {}}},
         )
 
         result = client.health_check()
@@ -232,14 +232,43 @@ class TestDaktelaClient:
     def test_get_one_encodes_identifier(
         self, client: DaktelaClient, httpx_mock: HTTPXMock
     ) -> None:
-        httpx_mock.add_response(json={"result": {"data": {"name": "alice/bob"}}})
+        httpx_mock.add_response(json={"result": {"data": {"name": "alice bob?#%"}}})
 
-        response = client.get_one("Users", "alice/bob")
+        response = client.get_one("Users", "alice bob?#%")
 
         request = httpx_mock.get_request()
         assert request is not None
-        assert request.url.raw_path.split(b"?")[0] == b"/api/v6/users/alice%2Fbob.json"
-        assert response.get("name") == "alice/bob"
+        assert request.url.raw_path.split(b"?")[0] == (
+            b"/api/v6/users/alice%20bob%3F%23%25.json"
+        )
+        assert response.get("name") == "alice bob?#%"
+
+    @pytest.mark.parametrize(
+        ("method", "args", "http_method", "body"),
+        [
+            ("put_one", ("Tickets", "ticket 1", {"stage": "CLOSE"}), "PUT", {"stage": "CLOSE"}),
+            ("delete_one", ("Tickets", "ticket 1"), "DELETE", None),
+        ],
+    )
+    def test_write_one_encodes_object_name(
+        self,
+        client: DaktelaClient,
+        httpx_mock: HTTPXMock,
+        method: str,
+        args: tuple[object, ...],
+        http_method: str,
+        body: object,
+    ) -> None:
+        httpx_mock.add_response(json={"result": {"name": "ticket 1"}})
+
+        getattr(client, method)(*args, {"audit": 1})
+
+        request = httpx_mock.get_request()
+        assert request is not None
+        assert request.method == http_method
+        assert request.url.raw_path.split(b"?")[0] == b"/api/v6/tickets/ticket%201.json"
+        assert request.url.params["audit"] == "1"
+        assert (json.loads(request.content) if request.content else None) == body
 
     def test_get_relation(self, client: DaktelaClient, httpx_mock: HTTPXMock) -> None:
         httpx_mock.add_response(json={"result": {"data": [{"name": "support"}]}})
@@ -268,9 +297,18 @@ class TestDaktelaClient:
             ("get_one", ("users", ""), "object_name"),
             ("get_relation", ("users", "", "groups"), "object_name"),
             ("get_relation", ("users", "alice", "/"), "relation"),
+            ("get_relation", ("users", "alice", " "), "relation"),
+            ("get_one", ("users", "../users/admin"), "object_name"),
+            ("get_one", ("users", ".."), "object_name"),
+            ("get_one", ("users", "."), "object_name"),
+            ("get_one", ("users", "a\\b"), "object_name"),
+            ("get_one", ("users", "a\x00b"), "object_name"),
+            ("put_one", ("tickets", "a/b", {}), "object_name"),
+            ("delete_one", ("tickets", "../users/admin"), "object_name"),
+            ("get_relation", ("users", "alice", "../admin"), "relation"),
         ],
     )
-    def test_object_helpers_reject_empty_names(
+    def test_object_helpers_reject_unsafe_names(
         self,
         client: DaktelaClient,
         method: str,
