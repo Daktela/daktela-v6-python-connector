@@ -2,6 +2,7 @@
 
 import json
 import logging
+import warnings
 from typing import Callable, Iterator, List
 from urllib.parse import parse_qs
 
@@ -17,16 +18,20 @@ from daktela import (
     DaktelaNotFoundException,
     DaktelaProtocolException,
     DaktelaRateLimitException,
+    DaktelaRedirectException,
     DaktelaTimeoutException,
     DaktelaUnauthorizedException,
     DaktelaValidationException,
     RateLimitConfig,
     RetryConfig,
+    __version__,
 )
 from daktela.http import ApiCommunicator
 from daktela.http.communicator import _AccessTokenRedactor
 
 Handler = Callable[[httpx.Request], httpx.Response]
+
+WHOIM_USER = {"result": {"version": {"current": "33.26.0"}, "user": {"name": "admin"}}}
 
 
 def make_communicator(
@@ -38,12 +43,15 @@ def make_communicator(
     logger: logging.Logger | None = None,
 ) -> tuple[ApiCommunicator, httpx.Client]:
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    config = DaktelaConfig(
-        "test.daktela.com",
-        "secret-token",
-        auth_method=auth_method,
-        logger=logger,
-    )
+    with warnings.catch_warnings():
+        # AuthMethod.COOKIE is deprecated but still supported.
+        warnings.simplefilter("ignore", DeprecationWarning)
+        config = DaktelaConfig(
+            "test.daktela.com",
+            "secret-token",
+            auth_method=auth_method,
+            logger=logger,
+        )
     return (
         ApiCommunicator(config, retry_config, rate_limit_config, client),
         client,
@@ -83,7 +91,7 @@ def test_builds_canonical_header_authenticated_request() -> None:
     assert request.headers["X-AUTH-TOKEN"] == "secret-token"
     assert request.headers["Accept"] == "application/json"
     assert request.headers["Content-Type"] == "application/json"
-    assert request.headers["User-Agent"] == "DaktelaPythonSDK/1.2"
+    assert request.headers["User-Agent"] == f"DaktelaPythonSDK/{__version__}"
     assert query["filter[logic]"] == ["and"]
     assert query["filter[filters][0][value]"] == ["true"]
     assert query["fields[0]"] == ["name"]
@@ -348,9 +356,11 @@ def test_logging_and_health(
 ) -> None:
     logger = logging.getLogger("daktela-test")
     caplog.set_level(logging.DEBUG, logger="daktela-test")
-    times = iter([1.0, 1.025])
+    times = iter([0.0, 0.0, 1.0, 1.025])
     monkeypatch.setattr("daktela.http.communicator.time.monotonic", lambda: next(times))
-    communicator, client = make_communicator(ok_response, logger=logger)
+    communicator, client = make_communicator(
+        lambda request: httpx.Response(200, json=WHOIM_USER), logger=logger
+    )
 
     assert communicator.ping()
     health = communicator.health_check()
@@ -362,7 +372,7 @@ def test_logging_and_health(
 
 def test_health_failure_with_and_without_status(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("daktela.http.communicator.time.sleep", lambda delay: None)
-    times = iter([1.0, 1.001])
+    times = iter([0.0, 0.0, 1.0, 1.001])
     monkeypatch.setattr("daktela.http.communicator.time.monotonic", lambda: next(times))
     communicator, client = make_communicator(
         lambda request: httpx.Response(401),
@@ -372,6 +382,7 @@ def test_health_failure_with_and_without_status(monkeypatch: pytest.MonkeyPatch)
     result = communicator.health_check()
     assert result["healthy"] is False
     assert result["status_code"] == 401
+    assert result["error"] == "Request failed with status 401"
     client.close()
 
     times = iter([2.0, 2.001])
@@ -586,7 +597,7 @@ def clean_httpx_filters() -> Iterator[logging.Logger]:
         logger.addFilter(filter_)
 
 
-@pytest.mark.parametrize("auth_method", [AuthMethod.HEADER, AuthMethod.COOKIE])
+@pytest.mark.parametrize("auth_method", [AuthMethod.HEADER, AuthMethod.BEARER, AuthMethod.COOKIE])
 def test_redactor_is_only_installed_for_query_auth(
     clean_httpx_filters: logging.Logger, auth_method: AuthMethod
 ) -> None:
@@ -653,4 +664,247 @@ def test_retry_flags_take_precedence_for_unsent_post(
     with pytest.raises(exception):
         communicator.send_request("POST", "tickets", body={})
     assert calls == ["POST"]
+    client.close()
+
+
+def test_bearer_authentication() -> None:
+    requests: List[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"result": {"data": []}})
+
+    communicator, client = make_communicator(handler, auth_method=AuthMethod.BEARER)
+    communicator.send_request("GET", "users")
+
+    assert requests[0].headers["Authorization"] == "Bearer secret-token"
+    assert "X-AUTH-TOKEN" not in requests[0].headers
+    assert "accessToken" not in requests[0].url.params
+    client.close()
+
+
+def test_redirect_raises_without_following_or_leaking_the_token() -> None:
+    calls, handler = count_calls(
+        lambda request: httpx.Response(
+            302,
+            headers={"Location": "https://other.example/api/v6/users.json?accessToken=secret-token"},
+            json={"error": []},
+        )
+    )
+    communicator, client = make_communicator(handler, auth_method=AuthMethod.QUERY)
+    with pytest.raises(DaktelaRedirectException) as raised:
+        communicator.send_request("GET", "users")
+
+    assert calls == ["GET"]
+    assert raised.value.status_code == 302
+    assert raised.value.location == "https://other.example/api/v6/users.json?accessToken=***"
+    assert "secret-token" not in str(raised.value)
+    assert "https://other.example" in str(raised.value)
+    client.close()
+
+
+def test_redirect_of_a_create_request_is_not_resent() -> None:
+    calls, handler = count_calls(
+        lambda request: httpx.Response(
+            301, headers={"Location": "https://test.daktela.com/"}, text="<html>moved</html>"
+        )
+    )
+    communicator, client = make_communicator(
+        handler, retry_config=RetryConfig(retry_on_methods=("POST",))
+    )
+    with pytest.raises(DaktelaRedirectException) as raised:
+        communicator.send_request("POST", "tickets", body={"title": "t"})
+    assert calls == ["POST"]
+    assert raised.value.status_code == 301
+    client.close()
+
+
+def test_redirect_without_location() -> None:
+    communicator, client = make_communicator(lambda request: httpx.Response(307))
+    with pytest.raises(DaktelaRedirectException) as raised:
+        communicator.send_request("GET", "users")
+    assert raised.value.location is None
+    assert raised.value.message.startswith("The server redirected the request.")
+    client.close()
+
+
+def test_injected_client_redirect_setting_is_overridden() -> None:
+    requests: List[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.host == "evil.example":
+            return httpx.Response(200, json={"result": {"data": []}})
+        return httpx.Response(302, headers={"Location": "https://evil.example/steal"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    config = DaktelaConfig("test.daktela.com", "secret-token")
+    communicator = ApiCommunicator(config, None, None, client)
+    with pytest.raises(DaktelaRedirectException):
+        communicator.send_request("GET", "users")
+    assert [request.url.host for request in requests] == ["test.daktela.com"]
+    client.close()
+
+
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        (
+            {"result": {"version": {}, "user": None}, "error": []},
+            "The access token was not accepted: the API did not identify a user.",
+        ),
+        ({"result": {"data": [{"id": 1}]}}, "The API did not return a whoim result"),
+        ({"result": {"user": None}, "error": ["Token expired"]}, "Token expired"),
+    ],
+)
+def test_health_check_requires_whoim_to_identify_a_user(
+    payload: dict[str, object], error: str
+) -> None:
+    communicator, client = make_communicator(lambda request: httpx.Response(200, json=payload))
+
+    assert communicator.ping() is False
+    result = communicator.health_check()
+    assert result["healthy"] is False
+    assert result["status_code"] == 200
+    assert result["error"].startswith(error)
+    client.close()
+
+
+def test_health_check_reports_the_api_error_message() -> None:
+    communicator, client = make_communicator(
+        lambda request: httpx.Response(
+            400, json={"result": None, "error": {"error": "New password should be set"}}
+        )
+    )
+    result = communicator.health_check()
+    assert result["healthy"] is False
+    assert result["status_code"] == 400
+    assert result["error"] == "New password should be set"
+    client.close()
+
+
+def test_api_errors_echoing_the_token_are_redacted() -> None:
+    communicator, client = make_communicator(
+        lambda request: httpx.Response(
+            400, json={"error": {"secret-token": ["secret-token is invalid"]}}
+        )
+    )
+    with pytest.raises(DaktelaValidationException) as raised:
+        communicator.send_request("GET", "users")
+    assert raised.value.errors == [{"***": ["*** is invalid"]}]
+    assert raised.value.message == "***: *** is invalid"
+    client.close()
+
+
+def test_transport_error_with_the_token_is_redacted_and_not_chained() -> None:
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("cannot send secret-token", request=request)
+
+    communicator, client = make_communicator(fail, retry_config=RetryConfig.disabled())
+    with pytest.raises(DaktelaConnectionException) as raised:
+        communicator.send_request("GET", "users")
+    assert str(raised.value) == "Request failed: cannot send ***"
+    assert raised.value.__cause__ is None
+    assert raised.value.__suppress_context__
+    client.close()
+
+
+def test_transport_error_without_secrets_is_chained() -> None:
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow", request=request)
+
+    communicator, client = make_communicator(fail, retry_config=RetryConfig.disabled())
+    with pytest.raises(DaktelaTimeoutException) as raised:
+        communicator.send_request("GET", "users")
+    assert isinstance(raised.value.__cause__, httpx.ReadTimeout)
+    client.close()
+
+
+def test_request_without_credentials_is_not_sent() -> None:
+    calls, handler = count_calls(ok_response)
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    communicator = ApiCommunicator(DaktelaConfig("test.daktela.com"), None, None, client)
+
+    with pytest.raises(DaktelaUnauthorizedException, match="No access token"):
+        communicator.send_request("GET", "users")
+    health = communicator.health_check()
+    assert health["healthy"] is False
+    assert "No access token" in health["error"]
+    assert calls == []
+    client.close()
+
+
+def test_file_request_uses_the_instance_root_and_raw_response() -> None:
+    requests: List[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, content=b"\x00audio", headers={"Content-Type": "audio/mpeg"})
+
+    communicator, client = make_communicator(handler, auth_method=AuthMethod.QUERY)
+    response = communicator.send_file_request(
+        "get", "/file/recording/activity_1/", {"download": "true"}
+    )
+
+    request = requests[0]
+    assert request.url.path == "/file/recording/activity_1"
+    assert request.url.params["download"] == "true"
+    assert request.url.params["accessToken"] == "secret-token"
+    assert request.headers["Accept"] == "*/*"
+    assert "Content-Type" not in request.headers
+    assert response.content == b"\x00audio"
+    client.close()
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["", "/", "https://evil.example/x", "file/x?y=1", "file/x#y", "file\\x", "file//x"]
+    + ["file/../api"],
+)
+def test_invalid_file_path(path: str) -> None:
+    with pytest.raises(ValueError):
+        ApiCommunicator._normalize_file_path(path)
+
+
+@pytest.mark.parametrize(
+    ("response", "exception", "errors"),
+    [
+        (
+            httpx.Response(400, json="Uploading of this file type is blocked"),
+            DaktelaValidationException,
+            ["Uploading of this file type is blocked"],
+        ),
+        (httpx.Response(404, json={"error": ["missing"]}), DaktelaNotFoundException, ["missing"]),
+        (httpx.Response(404, json=""), DaktelaNotFoundException, []),
+        (
+            httpx.Response(401, text="{broken", headers={"Content-Type": "application/json"}),
+            DaktelaUnauthorizedException,
+            [],
+        ),
+        (httpx.Response(403, text="denied"), DaktelaForbiddenException, []),
+        (httpx.Response(500), DaktelaException, []),
+        (
+            httpx.Response(302, headers={"Location": "https://test.daktela.com/login"}),
+            DaktelaRedirectException,
+            [],
+        ),
+    ],
+)
+def test_file_request_errors(
+    response: httpx.Response, exception: type[DaktelaException], errors: list[object]
+) -> None:
+    communicator, client = make_communicator(
+        lambda request: response, retry_config=RetryConfig.disabled()
+    )
+    with pytest.raises(exception) as raised:
+        communicator.send_file_request("GET", "file/download.php")
+    assert raised.value.errors == errors
+    client.close()
+
+
+def test_non_text_errors_are_kept() -> None:
+    communicator, client = make_communicator(
+        lambda request: httpx.Response(200, json={"error": [42, None, True], "result": {}})
+    )
+    assert communicator.send_request("GET", "users").errors == [42, None, True]
     client.close()

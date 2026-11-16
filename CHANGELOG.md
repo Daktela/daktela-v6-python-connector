@@ -7,6 +7,142 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-16
+
+Fixes health checks that reported rejected tokens as healthy and filter
+helpers that sent operators the API rejects. Adds login sessions, Bearer
+authentication, file downloads and uploads, and safe update and delete by
+object name. Operators, endpoints, and response shapes were verified against
+the Daktela 33.26 source and API documentation.
+
+### Behaviour changes
+
+Existing callers should check these before upgrading:
+
+- Python 3.11 or newer is required. Python 3.10 reached its end of life in
+  October 2026. pip keeps installing 1.2.x on Python 3.10.
+- `ping()` and `health_check()` report the API as healthy only when `whoim`
+  identifies the token's user. `whoim` answers a rejected token (invalid,
+  expired, revoked, or of a deactivated user) with HTTP 200 and no user, which
+  previously counted as healthy.
+- The `error` of `health_check()` is the API's message without the status
+  prefix, for example `New password should be set` instead of
+  `[400] {'error': 'New password should be set'}`. The status stays in
+  `status_code`.
+- Exception messages flatten nested API errors: `[{"error": "Bad request"}]`
+  becomes `Bad request` and `{"title": ["required"]}` becomes
+  `title: required`. Several errors are joined with `; `. `errors` still holds
+  the raw API errors.
+- HTTP redirects raise `DaktelaRedirectException`, also with an injected
+  `httpx.Client` that follows redirects. Previously a 3xx response without a
+  body returned an empty `DaktelaResponse`, so a create answered by a redirect
+  seemed to succeed and iteration returned no records.
+- `get_one()` and `get_relation()` reject names containing `/`, `\`, or NUL and
+  the names `.` and `..`, instead of percent-encoding the slash. Relation names
+  are no longer stripped of surrounding slashes.
+- `DaktelaConfig` rejects access tokens containing whitespace or control
+  characters, such as a trailing line break.
+- `DaktelaConfig.access_token` is `Optional[str]` and defaults to `None`, for
+  clients that log in with a username and password. Code type-checked with
+  mypy that reads it as `str` needs a `None` check. `DaktelaClient(config)`
+  raises `ValueError` when it is `None`.
+- An instance URL with a path other than `/api/v6`, such as
+  `https://example.com/daktela/`, is accepted and its path is kept as a prefix.
+  `DaktelaConfig.url` then includes the prefix.
+- `normalize_phone_number()` removes the separators `-`, `(`, `)`, `.`, and
+  `/`, and returns an empty number unchanged instead of `00420`.
+- The default User-Agent carries the full package version
+  (`DaktelaPythonSDK/1.3.0`).
+
+### Added
+
+- `DaktelaClient.login()` to log in with a username and password instead of a
+  static token. The client refreshes the access token before it expires and
+  after an HTTP 401, logs in again when the session has ended, and never repeats
+  a login the server rejected (any failure other than a connection error, a
+  timeout, HTTP 429, or a 5xx status). `TokenSet`, the `TokenStore` protocol,
+  and `InMemoryTokenStore` keep a session across processes; stored tokens record
+  the user and instance they belong to, and a client whose refresh token was
+  rotated by another process sharing the store resumes the stored session
+  instead of logging in again. Token refreshes and logins are serialized
+  between threads.
+- `AuthMethod.BEARER` sends the token in the `Authorization: Bearer` header,
+  which the Daktela API documentation recommends (Daktela 31.37.0, 32.36.0,
+  33.14.0, or later).
+- `download_recording()`, `download_file()`, and `upload_file()` for the
+  instance's `/file/` endpoints, with `DaktelaFile` and `DaktelaUploadedFile`.
+  `DaktelaFile.safe_filename` reduces the server's file name to a base name
+  that is safe to join to a directory.
+- `put_one()` and `delete_one()` to update and delete an object with its name
+  safely encoded as one path segment.
+- `DaktelaFilter.contains()`, `not_contains()`, `starts_with()`, and
+  `ends_with()` for the API's `contains`, `doesnotcontain`, `startswith`, and
+  `endswith` operators.
+- `field_type` for `DaktelaFilter.custom()` to limit a `customFields` filter to
+  custom fields of one type, such as `email` or `phone`.
+- `DaktelaRedirectException`, with the redirect target in `location`.
+- `DaktelaConfig.instance_url`, the instance root used for file endpoints.
+- Support for Python 3.14 and 3.15.
+
+### Changed
+
+- The minimum httpx version is 0.27.0, the oldest version tested in CI.
+- CI tests Python 3.11 to 3.15, tests the minimum httpx version, and runs the
+  live integration tests when repository secrets are configured.
+- CI installs a pinned development environment (`requirements-dev.txt`), and
+  Dependabot proposes weekly updates for it and for the workflow actions.
+- Workflow actions are pinned to commit SHAs and updated to versions that run
+  on Node.js 24. Checkouts do not keep the workflow token, the release build
+  pins its build backend, Dependabot waits seven days before proposing a new
+  release, and the live tests run only on `main` with the secrets of the `live`
+  environment.
+- The test suite turns warnings into errors.
+- `like()` and `not_like()` document that their value is an SQL `LIKE` pattern.
+
+### Deprecated
+
+- `DaktelaFilter.begins()` and `ends()`. They now send `startswith` and
+  `endswith`; use `starts_with()` and `ends_with()`.
+- `DaktelaFilter.not_begins()` and `not_ends()`. The API has no such operators,
+  so they now send `notlike` with a `value%` or `%value` pattern; use
+  `not_like()`.
+- `AuthMethod.COOKIE`. Daktela 32 and later accept only web-session tokens in
+  the `c_user` cookie, so a static API token is ignored there. Use `BEARER` or
+  `HEADER`.
+
+### Fixed
+
+- `ping()` and `health_check()` reported an invalid, expired, or revoked token
+  as healthy, and a non-`whoim` response, for example from a wrong instance
+  URL, as healthy.
+- `DaktelaFilter.begins()`, `ends()`, `not_begins()`, and `not_ends()` sent
+  operators the API rejects with an error.
+- A redirect response was treated as a success.
+- `normalize_phone_number("")` returned `00420`, and separators other than
+  whitespace were kept in the number.
+
+### Security
+
+- The access token, the tokens of a login session (including replaced ones),
+  and, for a login request, the password are redacted from exception messages,
+  API errors (also upload errors returned with HTTP 200), the redirect
+  location, and token-store save warnings. Token-store load warnings name only
+  the exception type. An httpx exception whose message contains a secret is no
+  longer chained to the raised exception.
+- A token containing a line break or another control character is rejected
+  before it is sent: in `DaktelaConfig`, in tokens returned by the server, and
+  in `TokenSet`, so also in tokens loaded from a token store. Previously the
+  transport error quoted the full token, and `health_check()` returned it in
+  `error`.
+- Redirects are never followed, so the token and login credentials are never
+  sent to a redirect target.
+- The password and the refresh token are masked in the reprs and frame
+  arguments that tracebacks, debuggers, and error trackers print, and transport
+  errors of login and refresh requests are not chained to the raised exception.
+- `login()` warns when it would send the password over plain HTTP to another
+  host than the local machine, or with certificate verification disabled.
+- Object and relation names that could address another endpoint are rejected.
+
 ## [1.2.0] - 2026-10-06
 
 Fixes duplicate records from retried POST requests, silent truncation during

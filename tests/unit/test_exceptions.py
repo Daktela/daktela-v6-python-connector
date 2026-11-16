@@ -1,5 +1,7 @@
 """Tests for Daktela exceptions."""
 
+import pytest
+
 from daktela import (
     DaktelaConnectionException,
     DaktelaException,
@@ -7,10 +9,12 @@ from daktela import (
     DaktelaNotFoundException,
     DaktelaProtocolException,
     DaktelaRateLimitException,
+    DaktelaRedirectException,
     DaktelaTimeoutException,
     DaktelaUnauthorizedException,
     DaktelaValidationException,
 )
+from daktela.exceptions import _format_errors
 
 
 class TestDaktelaExceptions:
@@ -96,3 +100,29 @@ def test_forbidden_exception() -> None:
     assert exc.status_code == 403
     assert exc.errors == ["no access"]
     assert str(exc) == "[403] Forbidden"
+
+
+def test_redirect_exception() -> None:
+    exc = DaktelaRedirectException("moved", 301, "https://example.com/")
+    assert isinstance(exc, DaktelaException)
+    assert exc.status_code == 301
+    assert exc.location == "https://example.com/"
+    assert DaktelaRedirectException().location is None
+
+
+@pytest.mark.parametrize(
+    ("errors", "message"),
+    [
+        (["failure"], "failure"),
+        (["one", "two"], "one; two"),
+        ([{"error": "New password should be set"}], "New password should be set"),
+        ([{"title": ["required"], "stage": "invalid"}], "title: required; stage: invalid"),
+        ([{"0": "first", "message": ["second"]}], "first; second"),
+        ([{"errors": {"field": [None, " ", "bad"]}}], "field: bad"),
+        ([42], "42"),
+        ([], "Unknown API error"),
+        ([None, ""], "Unknown API error"),
+    ],
+)
+def test_format_errors_flattens_nested_errors(errors: list[object], message: str) -> None:
+    assert _format_errors(errors) == message

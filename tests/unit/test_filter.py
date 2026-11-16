@@ -16,12 +16,12 @@ from daktela import DaktelaFilter
         (DaktelaFilter.gte("field", 1), "gte", 1),
         (DaktelaFilter.lt("field", 1), "lt", 1),
         (DaktelaFilter.lte("field", 1), "lte", 1),
-        (DaktelaFilter.like("field", "x"), "like", "x"),
-        (DaktelaFilter.not_like("field", "x"), "notlike", "x"),
-        (DaktelaFilter.begins("field", "x"), "begins", "x"),
-        (DaktelaFilter.not_begins("field", "x"), "notbegins", "x"),
-        (DaktelaFilter.ends("field", "x"), "ends", "x"),
-        (DaktelaFilter.not_ends("field", "x"), "notends", "x"),
+        (DaktelaFilter.like("field", "%x%"), "like", "%x%"),
+        (DaktelaFilter.not_like("field", "%x%"), "notlike", "%x%"),
+        (DaktelaFilter.contains("field", "x"), "contains", "x"),
+        (DaktelaFilter.not_contains("field", "x"), "doesnotcontain", "x"),
+        (DaktelaFilter.starts_with("field", "x"), "startswith", "x"),
+        (DaktelaFilter.ends_with("field", "x"), "endswith", "x"),
         (DaktelaFilter.in_("field", [1, 2]), "in", [1, 2]),
         (DaktelaFilter.not_in("field", [1, 2]), "notin", [1, 2]),
         (DaktelaFilter.is_null("field"), "isnull", None),
@@ -49,6 +49,42 @@ def test_custom_filter_and_ignore_case() -> None:
         "value": "Alice",
         "ignoreCase": True,
     }
+
+
+def test_custom_field_type_filter() -> None:
+    filter_ = DaktelaFilter.custom(
+        "customFields", "endswith", "@example.com", field_type="email"
+    )
+    assert filter_.to_dict() == {
+        "field": "customFields",
+        "operator": "endswith",
+        "value": "@example.com",
+        "type": "email",
+    }
+
+
+def test_custom_field_type_must_not_be_empty() -> None:
+    with pytest.raises(ValueError, match="field_type"):
+        DaktelaFilter.custom("customFields", "eq", "x", field_type="")
+
+
+@pytest.mark.parametrize(
+    ("factory", "operator", "value"),
+    [
+        (DaktelaFilter.begins, "startswith", "x"),
+        (DaktelaFilter.ends, "endswith", "x"),
+        (DaktelaFilter.not_begins, "notlike", "x%"),
+        (DaktelaFilter.not_ends, "notlike", "%x"),
+    ],
+)
+def test_deprecated_factories_send_supported_operators(
+    factory: Any, operator: str, value: str
+) -> None:
+    # The API rejects begins, notbegins, ends, and notends.
+    with pytest.warns(DeprecationWarning, match="deprecated") as warning:
+        filter_ = factory("field", "x")
+    assert warning[0].filename == __file__
+    assert filter_.to_dict() == {"field": "field", "operator": operator, "value": value}
 
 
 def test_null_filter_omits_value() -> None:

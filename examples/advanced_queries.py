@@ -21,8 +21,8 @@ def main() -> None:
     query = (
         DaktelaQuery()
         .filter(DaktelaFilter.eq("stage", "OPEN"))
-        .filter(DaktelaFilter.gte("priority", 5))
-        .filter(DaktelaFilter.like("title", "urgent"))
+        .filter(DaktelaFilter.in_("priority", ["MEDIUM", "HIGH"]))
+        .filter(DaktelaFilter.contains("title", "urgent"))
     )
     response = client.get("tickets", query)
     print(f"High priority urgent open tickets: {response.total}")
@@ -31,21 +31,20 @@ def main() -> None:
     query = DaktelaQuery().filter(
         DaktelaFilter.or_(
             DaktelaFilter.eq("stage", "OPEN"),
-            DaktelaFilter.eq("stage", "PENDING"),
-            DaktelaFilter.eq("stage", "IN_PROGRESS"),
+            DaktelaFilter.eq("stage", "WAIT"),
         )
     )
     response = client.get("tickets", query)
-    print(f"Active tickets (open, pending, or in progress): {response.total}")
+    print(f"Active tickets (open or waiting): {response.total}")
 
     # Combining AND and OR
     query = (
         DaktelaQuery()
-        .filter(DaktelaFilter.gte("priority", 8))  # AND
+        .filter(DaktelaFilter.eq("priority", "HIGH"))  # AND
         .filter(
             DaktelaFilter.or_(
                 DaktelaFilter.eq("stage", "OPEN"),
-                DaktelaFilter.eq("stage", "PENDING"),
+                DaktelaFilter.eq("stage", "WAIT"),
             )
         )
     )
@@ -61,7 +60,7 @@ def main() -> None:
 
     # NOT IN filter
     query = DaktelaQuery().filter(
-        DaktelaFilter.not_in("stage", ["CLOSED", "RESOLVED", "CANCELLED"])
+        DaktelaFilter.not_in("stage", ["CLOSE", "ARCHIVE"])
     )
     response = client.get("tickets", query)
     print(f"Non-closed tickets: {response.total}")
@@ -69,8 +68,8 @@ def main() -> None:
     # Date range filtering
     query = (
         DaktelaQuery()
-        .filter(DaktelaFilter.gte("created", "2024-01-01"))
-        .filter(DaktelaFilter.lt("created", "2024-02-01"))
+        .filter(DaktelaFilter.gte("created", "2024-01-01 00:00:00"))
+        .filter(DaktelaFilter.lt("created", "2024-02-01 00:00:00"))
     )
     response = client.get("tickets", query)
     print(f"Tickets created in January 2024: {response.total}")
@@ -93,15 +92,15 @@ def main() -> None:
     # Complex query combining everything
     query = (
         DaktelaQuery()
-        .fields("name", "title", "stage", "priority", "created", "owner")
+        .fields("name", "title", "stage", "priority", "created", "user")
         .filter(
             DaktelaFilter.or_(
                 DaktelaFilter.eq("stage", "OPEN"),
-                DaktelaFilter.eq("stage", "IN_PROGRESS"),
+                DaktelaFilter.eq("stage", "WAIT"),
             )
         )
-        .filter(DaktelaFilter.gte("priority", 5))
-        .filter(DaktelaFilter.gte("created", "2024-01-01"))
+        .filter(DaktelaFilter.in_("priority", ["MEDIUM", "HIGH"]))
+        .filter(DaktelaFilter.gte("created", "2024-01-01 00:00:00"))
         .sorts(
             DaktelaSort.desc("priority"),
             DaktelaSort.desc("created"),

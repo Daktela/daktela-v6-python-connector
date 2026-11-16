@@ -26,6 +26,7 @@ Example:
     ...     print(ticket["name"])
 """
 
+from ._version import __version__
 from .auth import AuthMethod
 from .client import DaktelaClient
 from .config import DaktelaConfig
@@ -36,17 +37,18 @@ from .exceptions import (
     DaktelaNotFoundException,
     DaktelaProtocolException,
     DaktelaRateLimitException,
+    DaktelaRedirectException,
     DaktelaTimeoutException,
     DaktelaUnauthorizedException,
     DaktelaValidationException,
 )
+from .files import DaktelaFile, DaktelaUploadedFile
 from .http import RateLimitConfig, RetryConfig
 from .iterator import PaginatedIterator
 from .query import DaktelaFilter, DaktelaPagination, DaktelaQuery, DaktelaSort
 from .response import DaktelaResponse
+from .session import InMemoryTokenStore, TokenSet, TokenStore
 from .utils import normalize_phone_number
-
-__version__ = "1.2.0"
 
 __all__ = [
     # Main client
@@ -62,6 +64,12 @@ __all__ = [
     "PaginatedIterator",
     # Authentication
     "AuthMethod",
+    "TokenSet",
+    "TokenStore",
+    "InMemoryTokenStore",
+    # Files
+    "DaktelaFile",
+    "DaktelaUploadedFile",
     # Configuration
     "RetryConfig",
     "RateLimitConfig",
@@ -72,6 +80,7 @@ __all__ = [
     "DaktelaNotFoundException",
     "DaktelaRateLimitException",
     "DaktelaProtocolException",
+    "DaktelaRedirectException",
     "DaktelaConnectionException",
     "DaktelaTimeoutException",
     "DaktelaValidationException",
