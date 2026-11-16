@@ -7,6 +7,15 @@ from email.utils import collapse_rfc2231_value
 from pathlib import Path
 from typing import Dict, Optional, Union
 
+# Characters Windows does not allow in file names. ":" would also turn
+# "C:name" into a drive-relative path and "name:stream" into an NTFS stream.
+_FORBIDDEN_FILENAME_CHARACTERS = frozenset('<>:"|?*')
+# Windows device names, reserved with any extension.
+_RESERVED_FILENAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+    | {f"{device}{index}" for device in ("COM", "LPT") for index in "123456789¹²³"}
+)
+
 
 def _filename_from_disposition(value: Optional[str]) -> Optional[str]:
     """Return the file name of a ``Content-Disposition`` header.
@@ -56,14 +65,23 @@ class DaktelaFile:
     def safe_filename(self) -> Optional[str]:
         """Return the server's file name reduced to a safe base name, or ``None``.
 
-        Directory parts (``/`` and ``\\``), control characters, and leading dots
-        are removed, so ``directory / file.safe_filename`` stays inside
-        ``directory``. ``None`` means nothing usable is left.
+        Directory parts (``/`` and ``\\``), control characters, and leading and
+        trailing dots and spaces are removed, the characters Windows forbids
+        (``<>:"|?*``) are replaced with ``_``, and a Windows device name such as
+        ``NUL`` or ``con.txt`` gets a ``_`` prefix. So
+        ``directory / file.safe_filename`` names a regular file inside
+        ``directory`` on every platform. ``None`` means nothing usable is left.
         """
         if not self.filename:
             return None
         name = self.filename.replace("\\", "/").rsplit("/", 1)[-1]
-        name = "".join(char for char in name if char.isprintable()).strip().lstrip(".")
+        name = "".join(
+            "_" if char in _FORBIDDEN_FILENAME_CHARACTERS else char
+            for char in name
+            if char.isprintable()
+        ).strip(" .")
+        if name.partition(".")[0].rstrip(" ").upper() in _RESERVED_FILENAMES:
+            name = f"_{name}"
         return name or None
 
     def save(self, path: Union[str, "os.PathLike[str]"]) -> Path:

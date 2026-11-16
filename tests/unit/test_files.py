@@ -251,6 +251,17 @@ def test_upload_requires_a_filename() -> None:
         (".bashrc", "bashrc"),
         ("bad\x00name\n.txt", "badname.txt"),
         ("dir/", None),
+        ("C:evil.txt", "C_evil.txt"),
+        ("report.pdf:hidden", "report.pdf_hidden"),
+        ('a<b>"c|d?e*.txt', "a_b__c_d_e_.txt"),
+        ("report.pdf. . ", "report.pdf"),
+        (" . ", None),
+        ("NUL", "_NUL"),
+        ("con.txt", "_con.txt"),
+        ("Com1 .tar.gz", "_Com1 .tar.gz"),
+        ("LPT¹.log", "_LPT¹.log"),
+        ("console.txt", "console.txt"),
+        ("COM10", "COM10"),
     ],
 )
 def test_safe_filename(filename: Optional[str], safe: Optional[str]) -> None:
