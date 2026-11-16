@@ -403,7 +403,8 @@ client.post(
 
 `DaktelaFile.filename` comes from the server and, for attachments, from whoever
 sent the file. Build paths from `safe_filename`, its base name without
-directory parts or control characters:
+directory parts or control characters and with the characters Windows forbids
+replaced, so it names a file inside the directory on every platform:
 `recording.save(directory / (recording.safe_filename or "download"))`. `download_file()` raises `DaktelaNotFoundException` for a missing file,
 and also when the server does not accept the access token, which the download
 endpoint reports as HTTP 404 too. Uploads are create requests: like `POST`,
@@ -560,20 +561,6 @@ docker compose run --rm sdk mypy src/daktela
 docker compose run --rm sdk python -m build
 docker compose run --rm sdk twine check dist/*
 ```
-
-Live integration tests run against a real instance when `DAKTELA_URL` and
-`DAKTELA_ACCESS_TOKEN` are set, and skip otherwise. `DAKTELA_USERNAME` and
-`DAKTELA_PASSWORD` enable the login test, and `DAKTELA_RECORDING_ACTIVITY` the
-recording download:
-
-```bash
-docker compose run --rm -e DAKTELA_URL -e DAKTELA_ACCESS_TOKEN sdk \
-    pytest tests/integration --no-cov -rs
-```
-
-In CI, the `live` job runs on `main` and reads the same names from the secrets of
-the `live` environment. Restrict that environment to the `main` branch in the
-repository settings, and use a dedicated account with read-only permissions.
 
 ## License
 

@@ -5,7 +5,6 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -118,32 +117,3 @@ jobs:
         run: |
           python -m build
           twine check dist/*
-
-  live:
-    # Runs against a real instance with the secrets of the protected `live`
-    # environment (restrict it to the main branch in the repository settings);
-    # the tests skip themselves when the secrets are not configured.
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    environment: live
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: pip install -c requirements-dev.txt -e ".[dev]"
-
-      - name: Run live integration tests
-        env:
-          DAKTELA_URL: ${{ secrets.DAKTELA_URL }}
-          DAKTELA_ACCESS_TOKEN: ${{ secrets.DAKTELA_ACCESS_TOKEN }}
-          DAKTELA_USERNAME: ${{ secrets.DAKTELA_USERNAME }}
-          DAKTELA_PASSWORD: ${{ secrets.DAKTELA_PASSWORD }}
-          DAKTELA_RECORDING_ACTIVITY: ${{ secrets.DAKTELA_RECORDING_ACTIVITY }}
-        run: pytest tests/integration --no-cov -rs

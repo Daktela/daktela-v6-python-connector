@@ -40,18 +40,6 @@ docker compose run --rm sdk python -m build
 docker compose run --rm sdk twine check dist/*
 ```
 
-## Live integration tests
-
-`tests/integration` runs against a real instance and skips itself unless
-`DAKTELA_URL` and `DAKTELA_ACCESS_TOKEN` are set. `DAKTELA_USERNAME` with
-`DAKTELA_PASSWORD`, and `DAKTELA_RECORDING_ACTIVITY`, enable the login and
-recording tests:
-
-```bash
-docker compose run --rm -e DAKTELA_URL -e DAKTELA_ACCESS_TOKEN sdk \
-    pytest tests/integration --no-cov -rs
-```
-
 ## Dependencies
 
 `requirements-dev.txt` pins the development environment that the Docker image

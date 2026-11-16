@@ -87,15 +87,13 @@ Existing callers should check these before upgrading:
 ### Changed
 
 - The minimum httpx version is 0.27.0, the oldest version tested in CI.
-- CI tests Python 3.11 to 3.15, tests the minimum httpx version, and runs the
-  live integration tests when repository secrets are configured.
+- CI tests Python 3.11 to 3.15 and the minimum httpx version.
 - CI installs a pinned development environment (`requirements-dev.txt`), and
   Dependabot proposes weekly updates for it and for the workflow actions.
 - Workflow actions are pinned to commit SHAs and updated to versions that run
   on Node.js 24. Checkouts do not keep the workflow token, the release build
-  pins its build backend, Dependabot waits seven days before proposing a new
-  release, and the live tests run only on `main` with the secrets of the `live`
-  environment.
+  pins its build backend, and Dependabot waits seven days before proposing a
+  new release.
 - The test suite turns warnings into errors.
 - `like()` and `not_like()` document that their value is an SQL `LIKE` pattern.
 
@@ -109,6 +107,11 @@ Existing callers should check these before upgrading:
 - `AuthMethod.COOKIE`. Daktela 32 and later accept only web-session tokens in
   the `c_user` cookie, so a static API token is ignored there. Use `BEARER` or
   `HEADER`.
+
+### Removed
+
+- The live integration tests in `tests/integration`. They were never run in CI;
+  the unit tests cover the API behaviour verified against the Daktela source.
 
 ### Fixed
 
