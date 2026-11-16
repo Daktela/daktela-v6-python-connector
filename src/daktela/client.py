@@ -133,6 +133,8 @@ class DaktelaClient:
             http_client: Custom httpx client (default: creates new client)
 
         Raises:
+            ValueError: When ``username`` or ``password`` is empty, or
+                ``config`` has an ``access_token``
             DaktelaException: When the login fails
 
         Warns:

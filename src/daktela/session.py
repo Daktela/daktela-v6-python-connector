@@ -49,8 +49,9 @@ class TokenSet:
     Attributes:
         access_token: Short-lived access token
         refresh_token: Long-lived refresh token; store it as securely as a password
-        owner: ``username@instance`` the tokens belong to, so a shared store
-            never resumes the session of another user or instance
+        owner: User and instance the tokens belong to (``username@`` followed
+            by the API base URL), so a shared store never resumes the session
+            of another user or instance
     """
 
     access_token: str = field(repr=False)

@@ -376,6 +376,8 @@ Download call recordings and attachments, and upload files for entities that
 reference them:
 
 ```python
+from pathlib import Path
+
 # Call recording of an activity
 recording = client.download_recording("activity_123456789")
 recording.save("call.mp3")
@@ -405,12 +407,14 @@ client.post(
 sent the file. Build paths from `safe_filename`, its base name without
 directory parts or control characters and with the characters Windows forbids
 replaced, so it names a file inside the directory on every platform:
-`recording.save(directory / (recording.safe_filename or "download"))`. `download_file()` raises `DaktelaNotFoundException` for a missing file,
-and also when the server does not accept the access token, which the download
-endpoint reports as HTTP 404 too. Uploads are create requests: like `POST`,
-they are resent only when the connection could not be established, on HTTP
-429, and, with a login session, once after an HTTP 401. The server removes
-unused uploads after a short time and rejects blocked file types with
+`recording.save(directory / (recording.safe_filename or "download"))`.
+
+`download_file()` raises `DaktelaNotFoundException` for a missing file, and also
+when the server does not accept the access token, which the download endpoint
+reports as HTTP 404 too. Uploads are create requests: like `POST`, they are
+resent only when the connection could not be established, on HTTP 429, and,
+with a login session, once after an HTTP 401. The server removes unused uploads
+after a short time and rejects blocked file types with
 `DaktelaValidationException`.
 
 ## Retries and rate limits

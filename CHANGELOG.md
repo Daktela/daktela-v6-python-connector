@@ -48,7 +48,8 @@ Existing callers should check these before upgrading:
   raises `ValueError` when it is `None`.
 - An instance URL with a path other than `/api/v6`, such as
   `https://example.com/daktela/`, is accepted and its path is kept as a prefix.
-  `DaktelaConfig.url` then includes the prefix.
+  `DaktelaConfig.url` then includes the prefix. A path with empty, `.`, or `..`
+  segments, or with a backslash, is rejected.
 - `normalize_phone_number()` removes the separators `-`, `(`, `)`, `.`, and
   `/`, and returns an empty number unchanged instead of `00420`.
 - The default User-Agent carries the full package version
